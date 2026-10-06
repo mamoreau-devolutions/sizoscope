@@ -5,6 +5,7 @@
     <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
     <RollForward>Major</RollForward>
     <Version Condition="'$(Version)' == ''">42.42.42.42</Version>
 
@@ -31,6 +32,8 @@
     <Compile Include="..\sizoscope\MstatData.Graph.cs" Link="MstatData.Graph.cs" />
     <Compile Include="..\sizoscope\MstatData.ObjectModel.cs" Link="MstatData.ObjectModel.cs" />
     <Compile Include="..\sizoscope\InputFileHelper.cs" Link="InputFileHelper.cs" />
+    <Compile Include="..\sizoscope\Dependency*.cs" Exclude="..\sizoscope\DependencyGraphToolbar.cs" Link="%(Filename)%(Extension)" />
+    <Compile Include="..\sizoscope\FileSizeFormatter.cs" Link="FileSizeFormatter.cs" />
   </ItemGroup>
 
   <ItemGroup>

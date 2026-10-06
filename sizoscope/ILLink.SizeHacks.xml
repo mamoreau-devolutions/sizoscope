@@ -143,8 +143,6 @@
     <resource name="System.Windows.Forms.RichTextBox" action="remove" />
     <resource name="System.Windows.Forms.save" action="remove" />
     <resource name="System.Windows.Forms.SaveFileDialog" action="remove" />
-    <resource name="System.Windows.Forms.ScrollButtonDown" action="remove" />
-    <resource name="System.Windows.Forms.ScrollButtonUp" action="remove" />
     <resource name="System.Windows.Forms.sendToBack" action="remove" />
     <resource name="System.Windows.Forms.Server.Arrow" action="remove" />
     <resource name="System.Windows.Forms.SplitContainer" action="remove" />

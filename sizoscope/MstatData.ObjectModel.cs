@@ -14,9 +14,9 @@ partial class MstatData
 
         public string Name => _data._typeRefNameCache[MetadataTokens.GetRowNumber(Handle)].Name ?? throw new Exception();
         public string Namespace => _data._typeRefNameCache[MetadataTokens.GetRowNumber(Handle)].Namespace ?? throw new Exception();
-        public int Size => _data.GetRowCache(Handle).Size;
+        public long Size => _data.GetRowCache(Handle).Size;
         public int NodeId => _data.GetRowCache(Handle).NodeId - RealNodeIdAddend;
-        public int AggregateSize => _data.GetRowCache(Handle).AggregateSize;
+        public long AggregateSize => _data.GetRowCache(Handle).AggregateSize;
         public Enumerator<TypeReferenceHandle, MstatTypeDefinition, MoveToNextInScope> GetNestedTypes()
             => new Enumerator<TypeReferenceHandle, MstatTypeDefinition, MoveToNextInScope>(_data, _data.GetRowCache(Handle).FirstNestedType);
         public Enumerator<TypeSpecificationHandle, MstatTypeSpecification, MoveToNextSpecOfType> GetTypeSpecifications()
@@ -66,8 +66,8 @@ partial class MstatData
         public MstatTypeSpecification(MstatData data, TypeSpecificationHandle handle)
             => (_data, Handle) = (data, handle);
 
-        public int Size => _data.GetRowCache(Handle).Size;
-        public int AggregateSize => _data.GetRowCache(Handle).AggregateSize;
+        public long Size => _data.GetRowCache(Handle).Size;
+        public long AggregateSize => _data.GetRowCache(Handle).AggregateSize;
         public int NodeId => _data.GetRowCache(Handle).NodeId - RealNodeIdAddend;
 
         public Enumerator<MemberReferenceHandle, MstatMemberDefinition, MoveToNextMemberOfType> GetMembers()
@@ -101,8 +101,8 @@ partial class MstatData
         public MstatMemberDefinition(MstatData data, MemberReferenceHandle handle)
             => (_data, Handle) = (data, handle);
 
-        public int Size => _data.GetRowCache(Handle).Size;
-        public int AggregateSize => _data.GetRowCache(Handle).AggregateSize;
+        public long Size => _data.GetRowCache(Handle).Size;
+        public long AggregateSize => _data.GetRowCache(Handle).AggregateSize;
         public string Name => _data._memberRefNameCache[MetadataTokens.GetRowNumber(Handle)];
         public int NodeId => _data.GetRowCache(Handle).NodeId - RealNodeIdAddend;
 
@@ -198,7 +198,7 @@ partial class MstatData
         public MstatMethodSpecification(MstatData data, MethodSpecificationHandle handle)
             => (_data, Handle) = (data, handle);
 
-        public int Size => _data.GetRowCache(Handle).Size;
+        public long Size => _data.GetRowCache(Handle).Size;
         public int NodeId => _data.GetRowCache(Handle).NodeId - RealNodeIdAddend;
 
         public override string ToString() => _data._formatter.FormatMember(new StringBuilder(), Handle).ToString();
@@ -235,7 +235,7 @@ partial class MstatData
         public MstatAssembly(MstatData data, AssemblyReferenceHandle handle)
             => (_data, _handle) = (data, handle);
 
-        public int AggregateSize => _data.GetRowCache(_handle).AggregateSize;
+        public long AggregateSize => _data.GetRowCache(_handle).AggregateSize;
 
         public Enumerator<TypeReferenceHandle, MstatTypeDefinition, MoveToNextInScope> GetTypes()
             => new Enumerator<TypeReferenceHandle, MstatTypeDefinition, MoveToNextInScope>(_data, _data.GetRowCache(_handle).FirstTypeRef);
@@ -261,7 +261,7 @@ partial class MstatData
 
         public ManifestResourceHandle Handle => _handle;
         public string Name => _data.GetRowCache(_handle).Name;
-        public int Size => _data.GetRowCache(_handle).Size;
+        public long Size => _data.GetRowCache(_handle).Size;
         public MstatAssembly Assembly => new MstatAssembly(_data, _data.GetRowCache(_handle).OwningAssembly);
 
         public MstatManifestResource(MstatData data, ManifestResourceHandle handle)
@@ -292,7 +292,7 @@ partial class MstatData
 
         public FrozenObjectHandle Handle => _handle;
 
-        public int Size => _data.GetRowCache(_handle).Size;
+        public long Size => _data.GetRowCache(_handle).Size;
 
         public int NodeId => _data.GetRowCache(_handle).NodeId;
 

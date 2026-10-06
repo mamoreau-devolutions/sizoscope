@@ -1,18 +1,18 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Reflection.Metadata;
 
 partial class MstatData
 {
     public static (MstatData Left, MstatData Right) Diff(MstatData left, MstatData right)
     {
-        MstatData leftDiff = new MstatData(left._peReader);
-        leftDiff._nameToNode = left._nameToNode;
+        using var leftLease = left.RetainBacking();
+        using var rightLease = right.RetainBacking();
+        MstatData leftDiff = new MstatData(left._image.Retain(), left._graph.Retain());
         if (left._manifestResourceCache != null)
             leftDiff._manifestResourceCache = new ManifestResourceRowCache[left._manifestResourceCache.Length];
         if (left._frozenObjectCache != null)
             leftDiff._frozenObjectCache = new FrozenObjectRowCache[left._frozenObjectCache.Length];
-        MstatData rightDiff = new MstatData(right._peReader);
-        rightDiff._nameToNode = right._nameToNode;
+        MstatData rightDiff = new MstatData(right._image.Retain(), right._graph.Retain());
         if (right._manifestResourceCache != null)
             rightDiff._manifestResourceCache = new ManifestResourceRowCache[right._manifestResourceCache.Length];
         if (right._frozenObjectCache != null)
@@ -341,16 +341,21 @@ partial class MstatData
             if (_blob2.ReadCompressedInteger() != rank)
                 return false;
 
-            int boundsCount = _blob1.ReadCompressedInteger();
-            if (_blob2.ReadCompressedInteger() != boundsCount)
+            int numSizes = _blob1.ReadCompressedInteger();
+            if (_blob2.ReadCompressedInteger() != numSizes)
                 return false;
 
-            for (int i = 0; i < 2; i++)
-            {
-                for (int j = 0; j < boundsCount; i++)
-                    if (_blob1.ReadCompressedInteger() != _blob2.ReadCompressedInteger())
-                        return false;
-            }
+            for (int i = 0; i < numSizes; i++)
+                if (_blob1.ReadCompressedInteger() != _blob2.ReadCompressedInteger())
+                    return false;
+
+            int numLoBounds = _blob1.ReadCompressedInteger();
+            if (_blob2.ReadCompressedInteger() != numLoBounds)
+                return false;
+
+            for (int i = 0; i < numLoBounds; i++)
+                if (_blob1.ReadCompressedSignedInteger() != _blob2.ReadCompressedSignedInteger())
+                    return false;
 
             return true;
         }

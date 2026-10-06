@@ -1,4 +1,4 @@
-﻿using System.Diagnostics;
+using System.Diagnostics;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
 using System.Runtime.CompilerServices;
@@ -15,6 +15,122 @@ partial class MstatData
     // assemly form a linked list. E.g. TypeRefRowCache.NextTypeInScope contains the
     // metadata handle of the next type. Using the RID portion of the handle
     // we can find the next entry in the TypeRefRowCache.
+
+    // Structural hash of signature blobs that is stable across files. Must stay consistent
+    // with SignatureEqualityComparer: signatures it considers equal must hash equally.
+    // Deliberately avoids initializing row caches so hashing has no side effects on
+    // the linked lists built during parsing.
+    private static class SignatureHasher
+    {
+        public static int HashTypeSignature(MstatData data, BlobReader reader)
+            => HashType(data, ref reader);
+
+        public static int HashMethodSpecSignature(MstatData data, BlobReader reader)
+        {
+            var hash = new HashCode();
+            hash.Add(reader.ReadSignatureHeader().RawValue);
+            int count = reader.ReadCompressedInteger();
+            hash.Add(count);
+            for (int i = 0; i < count; i++)
+                hash.Add(HashType(data, ref reader));
+            return hash.ToHashCode();
+        }
+
+        private static int HashType(MstatData data, ref BlobReader reader)
+        {
+            SignatureTypeCode typeCode = reader.ReadSignatureTypeCode();
+            switch (typeCode)
+            {
+                case SignatureTypeCode.Pointer:
+                case SignatureTypeCode.ByReference:
+                case SignatureTypeCode.SZArray:
+                    return HashCode.Combine((int)typeCode, HashType(data, ref reader));
+                case SignatureTypeCode.Array:
+                    {
+                        int elementHash = HashType(data, ref reader);
+                        int rank = reader.ReadCompressedInteger();
+                        int numSizes = reader.ReadCompressedInteger();
+                        for (int i = 0; i < numSizes; i++)
+                            reader.ReadCompressedInteger();
+                        int numLoBounds = reader.ReadCompressedInteger();
+                        for (int i = 0; i < numLoBounds; i++)
+                            reader.ReadCompressedSignedInteger();
+                        return HashCode.Combine((int)typeCode, elementHash, rank);
+                    }
+                case SignatureTypeCode.GenericMethodParameter:
+                case SignatureTypeCode.GenericTypeParameter:
+                    return HashCode.Combine((int)typeCode, reader.ReadCompressedInteger());
+                case SignatureTypeCode.GenericTypeInstance:
+                    {
+                        var hash = new HashCode();
+                        hash.Add((int)typeCode);
+                        hash.Add(HashType(data, ref reader));
+                        int count = reader.ReadCompressedInteger();
+                        hash.Add(count);
+                        for (int i = 0; i < count; i++)
+                            hash.Add(HashType(data, ref reader));
+                        return hash.ToHashCode();
+                    }
+                case SignatureTypeCode.FunctionPointer:
+                    return HashCode.Combine((int)typeCode, HashMethodSignature(data, ref reader));
+                case SignatureTypeCode.RequiredModifier:
+                case SignatureTypeCode.OptionalModifier:
+                    {
+                        int modifier = HashTypeHandle(data, reader.ReadTypeHandle());
+                        return HashCode.Combine((int)typeCode, modifier, HashType(data, ref reader));
+                    }
+                case SignatureTypeCode.TypeHandle:
+                    return HashTypeHandle(data, reader.ReadTypeHandle());
+                default:
+                    return (int)typeCode;
+            }
+        }
+
+        private static int HashMethodSignature(MstatData data, ref BlobReader reader)
+        {
+            SignatureHeader header = reader.ReadSignatureHeader();
+            var hash = new HashCode();
+            hash.Add(header.RawValue);
+            if (header.Kind == SignatureKind.Method)
+            {
+                if (header.IsGeneric)
+                    hash.Add(reader.ReadCompressedInteger());
+                int numParams = reader.ReadCompressedInteger();
+                hash.Add(numParams);
+                for (int i = 0; i < numParams + 1; i++)
+                    hash.Add(HashType(data, ref reader));
+            }
+            else
+            {
+                hash.Add(HashType(data, ref reader));
+            }
+            return hash.ToHashCode();
+        }
+
+        private static int HashTypeHandle(MstatData data, EntityHandle handle)
+        {
+            if (handle.Kind == HandleKind.TypeReference)
+                return HashTypeReference(data, (TypeReferenceHandle)handle);
+
+            TypeSpecification typeSpec = data._reader.GetTypeSpecification((TypeSpecificationHandle)handle);
+            BlobReader nested = data._reader.GetBlobReader(typeSpec.Signature);
+            return HashType(data, ref nested);
+        }
+
+        private static int HashTypeReference(MstatData data, TypeReferenceHandle handle)
+        {
+            ref TypeRefRowCache cache = ref data._typeRefCache[MetadataTokens.GetRowNumber(handle)];
+            if (cache.IsInitialized)
+                return cache.HashCode;
+
+            // Same formula as TypeRefRowCache.Initialize.
+            TypeReference typeRef = data._reader.GetTypeReference(handle);
+            string name = data._reader.GetString(typeRef.Name);
+            if (typeRef.ResolutionScope.Kind != HandleKind.TypeReference)
+                return HashCode.Combine(data._reader.GetString(typeRef.Namespace).GetHashCode(), name.GetHashCode());
+            return HashCode.Combine(HashTypeReference(data, (TypeReferenceHandle)typeRef.ResolutionScope), name.GetHashCode());
+        }
+    }
 
     private readonly (string Namespace, string Name)[] _typeRefNameCache;
     private readonly string[] _memberRefNameCache;
@@ -34,8 +150,8 @@ partial class MstatData
     {
         public int NodeId;
         public int HashCode;
-        public int Size;
-        public int AggregateSize;
+        public long Size;
+        public long AggregateSize;
 
         public TypeReferenceHandle FirstNestedType;
         public MemberReferenceHandle FirstMember;
@@ -72,7 +188,7 @@ partial class MstatData
             NodeId = -1;
         }
 
-        internal void AddSize(MstatData data, TypeReferenceHandle handle, int size)
+        internal void AddSize(MstatData data, TypeReferenceHandle handle, long size)
         {
             Debug.Assert(Unsafe.AreSame(ref this, ref Unsafe.Add(ref data._typeRefCache[0], MetadataTokens.GetRowNumber(handle))));
             
@@ -90,8 +206,8 @@ partial class MstatData
     {
         public int NodeId;
         public int HashCode;
-        public int Size;
-        public int AggregateSize;
+        public long Size;
+        public long AggregateSize;
 
         public TypeSpecificationHandle NextTypeSpec;
         public MemberReferenceHandle FirstMember;
@@ -110,13 +226,12 @@ partial class MstatData
             NextTypeSpec = typeRefRow.FirstTypeSpec;
             typeRefRow.FirstTypeSpec = handle;
             
-            // TODO: compute hashcode as part of GetDeclaringTypeReference and make it better
-            HashCode = typeRefRow.HashCode;
+            HashCode = SignatureHasher.HashTypeSignature(data, data._reader.GetBlobReader(typeSpec.Signature));
 
             NodeId = -1;
         }
 
-        internal void AddSize(MstatData data, TypeSpecificationHandle handle, int size)
+        internal void AddSize(MstatData data, TypeSpecificationHandle handle, long size)
         {
             Debug.Assert(Unsafe.AreSame(ref this, ref Unsafe.Add(ref data._typeSpecCache[0], MetadataTokens.GetRowNumber(handle))));
 
@@ -158,8 +273,8 @@ partial class MstatData
     struct MemberRefRowCache
     {
         public int NodeId;
-        public int Size;
-        public int AggregateSize;
+        public long Size;
+        public long AggregateSize;
         public int HashCode;
 
         public MemberReferenceHandle NextMemberRef;
@@ -191,7 +306,7 @@ partial class MstatData
             NodeId = -1;
         }
 
-        internal void AddSize(MstatData data, MemberReferenceHandle handle, int size)
+        internal void AddSize(MstatData data, MemberReferenceHandle handle, long size)
         {
             Debug.Assert(Unsafe.AreSame(ref this, ref Unsafe.Add(ref data._memberRefCache[0], MetadataTokens.GetRowNumber(handle))));
 
@@ -208,7 +323,7 @@ partial class MstatData
     struct MethodSpecRowCache
     {
         public int NodeId;
-        public int Size;
+        public long Size;
         public int HashCode;
 
         public MethodSpecificationHandle NextMethodSpec;
@@ -222,13 +337,13 @@ partial class MstatData
             NextMethodSpec = parentCache.FirstMethodSpec;
             parentCache.FirstMethodSpec = handle;
             
-            // TODO: better hashcode
-            HashCode = parentCache.HashCode;
+            HashCode = System.HashCode.Combine(parentCache.HashCode,
+                SignatureHasher.HashMethodSpecSignature(data, data.MetadataReader.GetBlobReader(methodSpec.Signature)));
 
             NodeId = -1;
         }
 
-        internal void AddSize(MstatData data, MethodSpecificationHandle handle, int size)
+        internal void AddSize(MstatData data, MethodSpecificationHandle handle, long size)
         {
             Debug.Assert(Unsafe.AreSame(ref this, ref Unsafe.Add(ref data._methodSpecCache[0], MetadataTokens.GetRowNumber(handle))));
 
@@ -239,17 +354,17 @@ partial class MstatData
 
     struct AssemblyRefRowCache
     {
-        public int AggregateSize;
+        public long AggregateSize;
 
         public TypeReferenceHandle FirstTypeRef;
         public ManifestResourceHandle FirstManifestResource;
 
-        internal void AddSize(int size) => AggregateSize += size;
+        internal void AddSize(long size) => AggregateSize = checked(AggregateSize + size);
     }
 
     struct ManifestResourceRowCache
     {
-        public int Size;
+        public long Size;
         public string Name;
         public AssemblyReferenceHandle OwningAssembly;
 
@@ -258,7 +373,7 @@ partial class MstatData
 
     struct FrozenObjectRowCache
     {
-        public int Size;
+        public long Size;
         public int NodeId;
         public EntityHandle InstanceType;
         public EntityHandle OwningEntity;

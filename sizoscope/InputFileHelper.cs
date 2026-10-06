@@ -16,6 +16,7 @@ namespace sizoscope
 
         /// <summary>The length of the .mstat data in bytes.</summary>
         public long MstatLength { get; }
+        public DependencyGraphInput? GraphInput { get; }
 
         private readonly ZipArchive? _archive;
         private readonly ZipArchiveEntry? _mstatEntry;
@@ -27,6 +28,9 @@ namespace sizoscope
             OriginalPath = originalPath;
             _filePath = filePath;
             MstatLength = new FileInfo(filePath).Length;
+            string dgmlPath = Path.ChangeExtension(filePath, "scan.dgml.xml");
+            if (File.Exists(dgmlPath))
+                GraphInput = new DependencyGraphInput(dgmlPath);
         }
 
         private ResolvedFile(string originalPath, ZipArchive archive, ZipArchiveEntry mstatEntry, ZipArchiveEntry? dgmlEntry)
@@ -36,6 +40,8 @@ namespace sizoscope
             _mstatEntry = mstatEntry;
             _dgmlEntry = dgmlEntry;
             MstatLength = mstatEntry.Length;
+            if (dgmlEntry != null)
+                GraphInput = new DependencyGraphInput(originalPath, dgmlEntry.FullName, dgmlEntry.Length);
         }
 
         /// <summary>
@@ -75,10 +81,10 @@ namespace sizoscope
 
                 // Look for a companion .scan.dgml.xml file
                 ZipArchiveEntry? dgmlEntry = null;
-                string dgmlName = Path.ChangeExtension(mstatEntry.Name, "scan.dgml.xml");
+                string dgmlName = Path.ChangeExtension(mstatEntry.FullName, "scan.dgml.xml");
                 foreach (var entry in archive.Entries)
                 {
-                    if (string.Equals(entry.Name, dgmlName, StringComparison.OrdinalIgnoreCase) && entry.Length > 0)
+                    if (string.Equals(entry.FullName, dgmlName, StringComparison.OrdinalIgnoreCase) && entry.Length > 0)
                     {
                         dgmlEntry = entry;
                         break;

@@ -17,7 +17,11 @@
             {
                 components.Dispose();
             }
-            _resolvedFile?.Dispose();
+            if (disposing)
+            {
+                _dependencies?.Dispose();
+                _data?.Dispose();
+            }
             base.Dispose(disposing);
         }
 

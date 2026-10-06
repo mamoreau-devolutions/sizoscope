@@ -7,12 +7,27 @@ namespace SizoscopeCli
         static int Main(string[] args)
         {
             string outputFile = null;
+            int top = 25;
             var filePaths = new List<string>();
 
             for (int i = 0; i < args.Length; i++)
             {
                 if (string.Equals(args[i], "--output", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
                     outputFile = args[++i];
+                else if (string.Equals(args[i], "--top", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+                {
+                    if (!int.TryParse(args[++i], out top) || top < 0)
+                    {
+                        Console.Error.WriteLine($"Invalid --top value: {args[i]}");
+                        PrintUsage();
+                        return 1;
+                    }
+                }
+                else if (args[i] is "--help" or "-h" or "-?" or "/?")
+                {
+                    PrintUsage(Console.Out);
+                    return 0;
+                }
                 else if (args[i].StartsWith("-"))
                 {
                     Console.Error.WriteLine($"Unknown option: {args[i]}");
@@ -22,6 +37,9 @@ namespace SizoscopeCli
                 else
                     filePaths.Add(args[i]);
             }
+
+            if (filePaths.Count == 1)
+                return RunSummary(filePaths[0], outputFile, top);
 
             if (filePaths.Count != 2)
             {
@@ -45,14 +63,18 @@ namespace SizoscopeCli
 
             MstatData left;
             using (var ms = resolvedLeft.OpenMstat())
-                left = MstatData.Read(ms, resolvedLeft.MstatLength, () => null);
+                left = MstatData.Read(ms, resolvedLeft.MstatLength);
+            using var leftLifetime = left;
 
             MstatData right;
             using (var ms = resolvedRight.OpenMstat())
-                right = MstatData.Read(ms, resolvedRight.MstatLength, () => null);
+                right = MstatData.Read(ms, resolvedRight.MstatLength);
+            using var rightLifetime = right;
 
             (MstatData leftDiff, MstatData rightDiff) = MstatData.Diff(left, right);
-            int diffSize = right.Size - left.Size;
+            using var leftDiffLifetime = leftDiff;
+            using var rightDiffLifetime = rightDiff;
+            long diffSize = checked(right.Size - left.Size);
 
             if (outputFile != null)
             {
@@ -67,32 +89,103 @@ namespace SizoscopeCli
             return 0;
         }
 
-        static void PrintUsage()
+        static void PrintUsage() => PrintUsage(Console.Error);
+
+        static void PrintUsage(TextWriter w)
         {
-            Console.Error.WriteLine("Usage: sizoscope-cli <baseline.mstat|.zip> <compare.mstat|.zip> [--output <file>]");
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("Compares two .mstat files (or .zip archives containing .mstat files)");
-            Console.Error.WriteLine("and prints a summary of size differences.");
-            Console.Error.WriteLine();
-            Console.Error.WriteLine("Options:");
-            Console.Error.WriteLine("  --output <file>  Write output to a file instead of stdout");
+            w.WriteLine("Usage: sizoscope-cli <file.mstat|.zip> [--top <n>] [--output <file>]");
+            w.WriteLine("       sizoscope-cli <baseline.mstat|.zip> <compare.mstat|.zip> [--output <file>]");
+            w.WriteLine();
+            w.WriteLine("With one file, prints the total size, all assemblies ranked by size, and the");
+            w.WriteLine("largest types. With two files, prints a summary of size differences.");
+            w.WriteLine();
+            w.WriteLine("Options:");
+            w.WriteLine("  --top <n>        Number of largest types to list in summary mode (default 25)");
+            w.WriteLine("  --output <file>  Write output to a file instead of stdout");
+            w.WriteLine("  --help           Show this help");
         }
 
-        static string AsFileSize(int size)
-            => Math.Abs(size) switch
+        static int RunSummary(string path, string outputFile, int top)
+        {
+            if (!File.Exists(path))
             {
-                < 1024 => $"{size:F0} B",
-                < 1024 * 1024 => $"{size / 1024f:F1} kB",
-                _ => $"{size / (1024f * 1024f):F1} MB",
-            };
+                Console.Error.WriteLine($"File not found: {path}");
+                return 1;
+            }
 
-        static void PrintDiff(TextWriter writer, MstatData leftDiff, MstatData rightDiff, int totalDiffSize)
+            using var resolved = ResolvedFile.Open(path);
+            MstatData data;
+            using (var ms = resolved.OpenMstat())
+                data = MstatData.Read(ms, resolved.MstatLength);
+            using var lifetime = data;
+
+            if (outputFile != null)
+            {
+                using var writer = new StreamWriter(outputFile);
+                PrintSummary(writer, data, top);
+            }
+            else
+            {
+                PrintSummary(Console.Out, data, top);
+            }
+            return 0;
+        }
+
+        static void PrintSummary(TextWriter writer, MstatData data, int top)
+        {
+            writer.WriteLine($"Total accounted size: {AsFileSize(data.Size)}");
+            writer.WriteLine();
+
+            var assemblies = new List<(string Name, long Size)>();
+            var types = new List<(string Name, string Assembly, long Size)>();
+            foreach (var asm in data.GetScopes())
+            {
+                if (asm.AggregateSize == 0)
+                    continue;
+                assemblies.Add((asm.Name, asm.AggregateSize));
+                if (top > 0)
+                {
+                    foreach (var type in asm.GetTypes())
+                    {
+                        if (type.AggregateSize > 0)
+                            types.Add((type.ToString(), asm.Name, type.AggregateSize));
+                    }
+                }
+            }
+
+            assemblies.Sort((a, b) => b.Size.CompareTo(a.Size));
+            writer.WriteLine("=== Assemblies ===");
+            foreach (var (name, size) in assemblies)
+                writer.WriteLine($"  {AsFileSize(size),-12} {Percent(size, data.Size),7} {name}");
+            writer.WriteLine();
+
+            if (top > 0 && types.Count > 0)
+            {
+                types.Sort((a, b) => b.Size.CompareTo(a.Size));
+                writer.WriteLine($"=== Top {Math.Min(top, types.Count)} types ===");
+                foreach (var (name, asm, size) in types.Take(top))
+                    writer.WriteLine($"  {AsFileSize(size),-12} {Percent(size, data.Size),7} [{asm}] {name}");
+                writer.WriteLine();
+            }
+
+            if (data.UnownedFrozenObjectSize > 0)
+                writer.WriteLine($"  Unowned frozen objects: {AsFileSize(data.UnownedFrozenObjectSize)}");
+            if (data.BlobsSize > 0)
+                writer.WriteLine($"  Blobs: {AsFileSize(data.BlobsSize)}");
+        }
+
+        static string Percent(long part, long total)
+            => total <= 0 ? "-" : (100.0 * part / total).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + "%";
+
+        static string AsFileSize(long size) => FileSizeFormatter.Format(size);
+
+        static void PrintDiff(TextWriter writer, MstatData leftDiff, MstatData rightDiff, long totalDiffSize)
         {
             writer.WriteLine($"Total accounted size difference: {AsFileSize(totalDiffSize)}");
             writer.WriteLine();
 
             // Collect assemblies from the right diff (new/grown items)
-            var grown = new List<(string Name, int Size)>();
+            var grown = new List<(string Name, long Size)>();
             foreach (var asm in rightDiff.GetScopes())
             {
                 if (asm.Name == "System.Private.CompilerGenerated")
@@ -103,7 +196,7 @@ namespace SizoscopeCli
             }
 
             // Collect assemblies from the left diff (removed/shrunk items)
-            var shrunk = new List<(string Name, int Size)>();
+            var shrunk = new List<(string Name, long Size)>();
             foreach (var asm in leftDiff.GetScopes())
             {
                 if (asm.Name == "System.Private.CompilerGenerated")

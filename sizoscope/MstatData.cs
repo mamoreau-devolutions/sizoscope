@@ -12,45 +12,42 @@ public partial class MstatData : IDisposable
     private readonly Version _version;
     private readonly NameFormatter _formatter;
 
-    private IntPtr _peImage;
+    private readonly SharedImage _image;
+    private int _disposed;
 
     private readonly TypeReferenceHandle[] _primitiveTypeCodeToTypeRef;
 
-    private readonly List<(string Name, int Size)> _blobs;
+    private readonly List<(string Name, long Size)> _blobs;
 
-    private int _typeSize;
-    private int _methodSize;
-    private int _fieldSize;
-    private int _unownedFrozenObjectSize;
-    private int _ownedFrozenObjectSize;
-    private int _manifestResourceSize;
+    private long _typeSize;
+    private long _methodSize;
+    private long _fieldSize;
+    private long _unownedFrozenObjectSize;
+    private long _ownedFrozenObjectSize;
+    private long _manifestResourceSize;
 
     public MetadataReader MetadataReader => _reader;
-    public int Size => _typeSize
+    public long Size => checked(_typeSize
         + _methodSize
         + _fieldSize
         + _unownedFrozenObjectSize
         + _ownedFrozenObjectSize
         + _manifestResourceSize
-        + BlobsSize;
+        + BlobsSize);
 
-    public int UnownedFrozenObjectSize => _unownedFrozenObjectSize;
+    public long UnownedFrozenObjectSize => _unownedFrozenObjectSize;
 
-    public int BlobsSize => _blobs.Sum(x => x.Size);
+    public long BlobsSize => _blobs.Sum(x => x.Size);
 
-    public IEnumerable<(string Name, int Size)> Blobs => _blobs;
+    public IEnumerable<(string Name, long Size)> Blobs => _blobs;
 
     ~MstatData() => Dispose(false);
 
-    private unsafe MstatData(byte* peImage, int size)
-        : this(new PEReader(peImage, size))
+    private MstatData(SharedImage image, DependencyGraphSession graph)
     {
-        _peImage = (IntPtr)peImage;
-    }
-
-    private MstatData(PEReader peReader)
-    {
-        _peReader = peReader;
+        _image = image;
+        _graph = graph;
+        _peReader = image.Reader;
         _reader = _peReader.GetMetadataReader();
         _version = _reader.GetAssemblyDefinition().Version;
         _typeRefNameCache = new (string Namespace, string Name)[_reader.GetTableRowCount(TableIndex.TypeRef) + 1];
@@ -62,47 +59,106 @@ public partial class MstatData : IDisposable
         _assemblyRefCache = new AssemblyRefRowCache[_reader.GetTableRowCount(TableIndex.AssemblyRef) + 1];
         _formatter = new NameFormatter(this);
         _primitiveTypeCodeToTypeRef = new TypeReferenceHandle[s_primitiveNames.Length];
-        _blobs = new List<(string Name, int Size)>();
+        _blobs = new List<(string Name, long Size)>();
     }
 
     public void Dispose() => Dispose(true);
 
-    private void Dispose(bool disposing)
+    internal IDisposable RetainBacking()
     {
-        if (disposing)
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        var image = _image.Retain();
+        try
         {
-            _peReader.Dispose();
-            GC.SuppressFinalize(this);
+            return new BackingLease(image, _graph.RetainOperation());
         }
-
-        if (_peImage != IntPtr.Zero)
-            Marshal.FreeHGlobal(_peImage);
+        catch
+        {
+            image.Release();
+            throw;
+        }
     }
 
-    public static unsafe MstatData Read(Stream mstatStream, long mstatLength, Func<Stream> openDgmlStream, bool loadDgmlAsync = false)
+    private sealed class BackingLease(SharedImage image, IDisposable graph) : IDisposable
     {
-        // Read the stream directly into unmanaged memory for PEReader.
-        // The caller provides the length (from FileInfo.Length or ZipArchiveEntry.Length)
-        // so we can allocate once and avoid an intermediate managed buffer.
+        private int _disposed;
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
+                image.Release();
+                graph.Dispose();
+            }
+        }
+    }
+
+    private void Dispose(bool disposing)
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+            return;
+        _graph?.Dispose();
+        _image?.Release();
+        if (disposing)
+            GC.SuppressFinalize(this);
+    }
+
+    public static unsafe MstatData Read(Stream mstatStream, long mstatLength)
+        => Read(mstatStream, mstatLength, null);
+
+    internal static unsafe MstatData Read(Stream mstatStream, long mstatLength, DependencyGraphInput graphInput)
+    {
+        ArgumentOutOfRangeException.ThrowIfNegative(mstatLength);
         int length = checked((int)mstatLength);
         byte* mem = (byte*)Marshal.AllocHGlobal(length);
-        var span = new Span<byte>(mem, length);
-        int totalRead = 0;
-        while (totalRead < length)
+        SharedImage image = null;
+        MstatData data = null;
+        try
         {
-            int read = mstatStream.Read(span.Slice(totalRead));
-            if (read == 0) break;
-            totalRead += read;
+            mstatStream.ReadExactly(new Span<byte>(mem, length));
+            image = new SharedImage(mem, length);
+            data = new MstatData(image, new DependencyGraphSession(graphInput));
+            return data.Parse();
         }
+        catch
+        {
+            if (data != null)
+                data.Dispose();
+            else if (image != null)
+                image.Release();
+            else
+                Marshal.FreeHGlobal((IntPtr)mem);
+            throw;
+        }
+    }
 
-        var data = new MstatData(mem, length).Parse();
-
-        if (loadDgmlAsync)
-            Task.Run(() => data.LoadDgml(openDgmlStream));
-        else
-            data.LoadDgml(openDgmlStream);
-
-        return data;
+    private sealed class SharedImage
+    {
+        public PEReader Reader { get; }
+        private readonly IntPtr _memory;
+        private int _references = 1;
+        public unsafe SharedImage(byte* memory, int length)
+        {
+            Reader = new PEReader(memory, length);
+            _memory = (IntPtr)memory;
+        }
+        public SharedImage Retain()
+        {
+            while (true)
+            {
+                int current = Volatile.Read(ref _references);
+                ObjectDisposedException.ThrowIf(current <= 0, this);
+                if (Interlocked.CompareExchange(ref _references, checked(current + 1), current) == current)
+                    return this;
+            }
+        }
+        public void Release()
+        {
+            if (Interlocked.Decrement(ref _references) == 0)
+            {
+                Reader.Dispose();
+                Marshal.FreeHGlobal(_memory);
+            }
+        }
     }
 
     private TypeReferenceHandle GetTypeReferenceForSignatureTypeCode(SignatureTypeCode typeCode)
@@ -162,7 +218,7 @@ public partial class MstatData : IDisposable
         }
 
 #if DEBUG
-        static void WalkType(MstatTypeDefinition type, ref int typeSize, ref int methodSize)
+        static void WalkType(MstatTypeDefinition type, ref long typeSize, ref long methodSize)
         {
             typeSize += type.Size;
             methodSize += WalkMembers(type.GetMembers());
@@ -174,9 +230,9 @@ public partial class MstatData : IDisposable
                 methodSize += WalkMembers(spec.GetMembers());
             }
 
-            static int WalkMembers(Enumerator<MemberReferenceHandle, MstatMemberDefinition, MoveToNextMemberOfType> members)
+            static long WalkMembers(Enumerator<MemberReferenceHandle, MstatMemberDefinition, MoveToNextMemberOfType> members)
             {
-                int size = 0;
+                long size = 0;
                 foreach (var m in members)
                 {
                     size += m.Size;
@@ -186,8 +242,8 @@ public partial class MstatData : IDisposable
                 return size;
             }
         }
-        int typeSize = 0;
-        int memberSize = 0;
+        long typeSize = 0;
+        long memberSize = 0;
         foreach (var asm in GetScopes())
             foreach (var t in asm.GetTypes())
                 WalkType(t, ref typeSize, ref memberSize);
@@ -260,7 +316,7 @@ public partial class MstatData : IDisposable
         while (reader.RemainingBytes > 0)
         {
             EntityHandle methodToken = reader.ILReadLdToken();
-            int size = reader.ILReadI4Constant() + reader.ILReadI4Constant() + reader.ILReadI4Constant();
+            long size = (long)reader.ILReadI4Constant() + reader.ILReadI4Constant() + reader.ILReadI4Constant();
             int nodeId = -1;
             if (majorVersion >= 2)
                 nodeId = reader.ILReadI4Constant() + RealNodeIdAddend;
@@ -716,4 +772,3 @@ public enum FormatOptions
 {
     NamespaceQualify = 1,
 }
-
