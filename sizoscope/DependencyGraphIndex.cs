@@ -86,6 +86,29 @@ internal sealed class DependencyGraphIndex : IDisposable
         }
     }
 
+    public long NodeCount => _nodeCount;
+
+    public IReadOnlyList<DependencyGraphNode> SearchNodes(Func<string, bool> predicate, int limit, CancellationToken token = default)
+    {
+        ArgumentNullException.ThrowIfNull(predicate);
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
+        var result = new List<DependencyGraphNode>();
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            for (long position = 0; position < _nodeCount && result.Count < limit; position++)
+            {
+                if ((position & 0xFFF) == 0)
+                    token.ThrowIfCancellationRequested();
+                Record record = At(_nodes, position);
+                string name = ReadString(record.Value);
+                if (predicate(name))
+                    result.Add(new DependencyGraphNode(checked((int)record.Key), name));
+            }
+        }
+        return result;
+    }
+
     public DependencyGraphNode GetNode(int id)
     {
         lock (_gate)
