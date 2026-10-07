@@ -18,6 +18,7 @@
     <Compile Include="..\sizoscope\MstatData.cs" Link="Production\MstatData.cs" />
     <Compile Include="..\sizoscope\MstatData.Cache.cs" Link="Production\MstatData.Cache.cs" />
     <Compile Include="..\sizoscope\MstatData.Diff.cs" Link="Production\MstatData.Diff.cs" />
+    <Compile Include="..\sizoscope\MstatData.Deduplication.cs" Link="Production\MstatData.Deduplication.cs" />
     <Compile Include="..\sizoscope\MstatData.Enumeration.cs" Link="Production\MstatData.Enumeration.cs" />
     <Compile Include="..\sizoscope\MstatData.Graph.cs" Link="Production\MstatData.Graph.cs" />
     <Compile Include="..\sizoscope\MstatData.ObjectModel.cs" Link="Production\MstatData.ObjectModel.cs" />

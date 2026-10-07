@@ -18,7 +18,7 @@ internal sealed class MstatPeBuilder
         ["ManifestResources"] = new(),
     };
 
-    public MstatPeBuilder()
+    public MstatPeBuilder(string version = "2.1.0.0")
     {
         _metadata.AddModule(
             0,
@@ -28,7 +28,7 @@ internal sealed class MstatPeBuilder
             default);
         _metadata.AddAssembly(
             _metadata.GetOrAddString("MstatFixture"),
-            new Version(2, 1, 0, 0),
+            new Version(version),
             default,
             default,
             0,
@@ -157,6 +157,25 @@ internal sealed class MstatPeBuilder
         Constant(payload, size);
     }
 
+    public void Folded(EntityHandle folded, params EntityHandle[] keptBodies)
+    {
+        BlobBuilder payload = GetDeduplicatedMethodsPayload();
+        Token(payload, folded);
+        Constant(payload, keptBodies.Length);
+        foreach (EntityHandle keptBody in keptBodies)
+        {
+            Token(payload, keptBody);
+            Constant(payload, 0);
+        }
+    }
+
+    public void MalformedFoldedCount(EntityHandle folded, int targetCount)
+    {
+        BlobBuilder payload = GetDeduplicatedMethodsPayload();
+        Token(payload, folded);
+        Constant(payload, targetCount);
+    }
+
     public byte[] Build()
     {
         _metadata.AddTypeDefinition(
@@ -203,6 +222,18 @@ internal sealed class MstatPeBuilder
     {
         payload.WriteByte(0x20);
         payload.WriteInt32(value);
+    }
+
+    private BlobBuilder GetDeduplicatedMethodsPayload()
+    {
+        if (!_payloads.TryGetValue(
+            "DeduplicatedMethods",
+            out BlobBuilder payload))
+        {
+            _payloads.Add("DeduplicatedMethods", payload = new BlobBuilder());
+        }
+
+        return payload;
     }
 
     private void String(BlobBuilder payload, string value)

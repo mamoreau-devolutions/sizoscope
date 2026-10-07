@@ -196,6 +196,9 @@ public partial class MstatData : IDisposable
             ParseFields();
         }
 
+        if (_version >= new Version(2, 2))
+            ParseDeduplicatedMethods();
+
 #if DEBUG
         static void WalkType(MstatTypeDefinition type, ref long typeSize, ref long methodSize)
         {
