@@ -139,6 +139,18 @@ internal sealed class MstatPeBuilder
         String(p, name); Constant(p, size);
     }
 
+    // MSTAT 2.2 DeduplicatedMethods record: a folded method followed by the kept bodies it maps to.
+    public void Folded(EntityHandle folded, params EntityHandle[] targets)
+    {
+        if (!_payloads.TryGetValue("DeduplicatedMethods", out var p))
+            _payloads.Add("DeduplicatedMethods", p = new BlobBuilder());
+        Token(p, folded); Constant(p, targets.Length);
+        foreach (var target in targets)
+        {
+            Token(p, target); Constant(p, 0);
+        }
+    }
+
     public byte[] Build()
     {
         _metadata.AddTypeDefinition(TypeAttributes.NotPublic, default, _metadata.GetOrAddString("<Module>"),

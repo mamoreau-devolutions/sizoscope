@@ -84,11 +84,11 @@ namespace SizoscopeCli
             if (outputFile != null)
             {
                 using var writer = new StreamWriter(outputFile);
-                PrintDiff(writer, leftDiff, rightDiff, diffSize);
+                PrintDiff(writer, left, right, leftDiff, rightDiff, diffSize);
             }
             else
             {
-                PrintDiff(Console.Out, leftDiff, rightDiff, diffSize);
+                PrintDiff(Console.Out, left, right, leftDiff, rightDiff, diffSize);
             }
 
             return 0;
@@ -181,6 +181,19 @@ namespace SizoscopeCli
                 writer.WriteLine($"  Unowned frozen objects: {AsFileSize(data.UnownedFrozenObjectSize)}");
             if (data.BlobsSize > 0)
                 writer.WriteLine($"  Blobs: {AsFileSize(data.BlobsSize)}");
+
+            if (data.DeduplicatedAliasCount > 0)
+            {
+                writer.WriteLine();
+                writer.WriteLine("=== Method body folding (identical bodies; not part of the total) ===");
+                writer.WriteLine($"  {data.DeduplicatedAliasCount:N0} methods folded into {data.DeduplicatedBodyCount:N0} kept bodies, estimated {AsFileSize(data.DeduplicatedSavedSize)} saved");
+                int foldTop = Math.Min(top, 10);
+                if (foldTop > 0)
+                {
+                    foreach (var body in data.GetDeduplicatedBodies().OrderByDescending(b => b.SavedSize).Take(foldTop))
+                        writer.WriteLine($"  {AsFileSize(body.SavedSize),-12} {body.AliasCount,8:N0} x {AsFileSize(body.Size),-10} {body.Name}");
+                }
+            }
         }
 
         static string Percent(long part, long total)
@@ -188,7 +201,7 @@ namespace SizoscopeCli
 
         static string AsFileSize(long size) => FileSizeFormatter.Format(size);
 
-        static void PrintDiff(TextWriter writer, MstatData leftDiff, MstatData rightDiff, long totalDiffSize)
+        static void PrintDiff(TextWriter writer, MstatData left, MstatData right, MstatData leftDiff, MstatData rightDiff, long totalDiffSize)
         {
             writer.WriteLine($"Total accounted size difference: {AsFileSize(totalDiffSize)}");
             writer.WriteLine();
@@ -248,6 +261,16 @@ namespace SizoscopeCli
                 writer.WriteLine($"  New blobs: +{AsFileSize(rightDiff.BlobsSize)}");
             if (leftDiff.BlobsSize > 0)
                 writer.WriteLine($"  Removed blobs: -{AsFileSize(leftDiff.BlobsSize)}");
+
+            if (left.DeduplicatedAliasCount != right.DeduplicatedAliasCount || left.DeduplicatedSavedSize != right.DeduplicatedSavedSize)
+            {
+                writer.WriteLine();
+                writer.WriteLine("=== Method body folding (not part of the total) ===");
+                writer.WriteLine($"  Folded methods: {left.DeduplicatedAliasCount:N0} -> {right.DeduplicatedAliasCount:N0}");
+                writer.WriteLine($"  Estimated folding savings: {AsFileSize(left.DeduplicatedSavedSize)} -> {AsFileSize(right.DeduplicatedSavedSize)}");
+                if ((left.DeduplicatedAliasCount == 0) != (right.DeduplicatedAliasCount == 0))
+                    writer.WriteLine("  Note: one input records no folded methods; ILC may have run without method body folding data (e.g. different build options).");
+            }
         }
     }
 }

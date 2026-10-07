@@ -135,6 +135,61 @@ public sealed class CliTests
     }
 
     [Fact]
+    public async Task Cli_ReportsMethodBodyFoldingGroupedByKeptBody()
+    {
+        using var temp = new OwnedTempDirectory(Path.GetTempPath());
+        byte[] Build(bool fold)
+        {
+            var b = new MstatPeBuilder("2.2.0.0");
+            var lib = b.AddType("Lib");
+            var big = b.AddMethod("Big", lib);
+            var small = b.AddMethod("Small", lib);
+            b.Method(big, 100);
+            b.Method(small, 10);
+            if (fold)
+            {
+                b.Folded(b.AddMethod("BigAliasA", lib), big);
+                b.Folded(b.AddMethod("BigAliasB", lib), big);
+                b.Folded(b.AddMethod("SmallAlias", lib), small);
+            }
+            return b.Build();
+        }
+        string plain = InputFixtureBuilder.Plain(temp, "plain.mstat", Build(fold: false));
+        string folded = InputFixtureBuilder.Plain(temp, "folded.mstat", Build(fold: true));
+
+        byte[] foldedBytes = Build(fold: true);
+        using (var data = MstatData.Read(new MemoryStream(foldedBytes), foldedBytes.Length))
+        {
+            Assert.Equal(3, data.DeduplicatedAliasCount);
+            Assert.Equal(2, data.DeduplicatedBodyCount);
+            Assert.Equal(210, data.DeduplicatedSavedSize);
+            Assert.Equal(110, data.Size);
+            var bigBody = data.GetDeduplicatedBodies().Single(x => x.Name.Contains(".Big("));
+            Assert.Equal(2, bigBody.AliasCount);
+            Assert.Equal(200, bigBody.SavedSize);
+            Assert.Equal(2, bigBody.GetAliasNames().Count(n => n.Contains("BigAlias")));
+        }
+
+        var summary = await CliProcess.Run(folded);
+        Assert.Equal(0, summary.ExitCode);
+        Assert.Equal("", summary.Error);
+        Assert.Contains("3 methods folded into 2 kept bodies, estimated 210 B saved", summary.Output);
+        int bigLine = summary.Output.IndexOf("Example.Lib.Big(", StringComparison.Ordinal);
+        int smallLine = summary.Output.IndexOf("Example.Lib.Small(", StringComparison.Ordinal);
+        Assert.True(bigLine > 0 && smallLine > bigLine, summary.Output);
+
+        var plainSummary = await CliProcess.Run(plain);
+        Assert.DoesNotContain("folding", plainSummary.Output);
+
+        var diff = await CliProcess.Run(plain, folded);
+        Assert.Equal(0, diff.ExitCode);
+        Assert.Equal("", diff.Error);
+        Assert.StartsWith(Report("0 B"), diff.Output);
+        Assert.Contains("Folded methods: 0 -> 3", diff.Output);
+        Assert.Contains("Estimated folding savings: 0 B -> 210 B", diff.Output);
+    }
+
+    [Fact]
     public async Task Cli_LargeDeclaredTotalsRemainPositiveAndUntruncated()
     {
         using var temp = new OwnedTempDirectory(Path.GetTempPath());
