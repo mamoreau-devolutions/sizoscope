@@ -220,6 +220,34 @@ public sealed class CliTests
         Assert.DoesNotContain("=== Removed / Shrunk ===", diff.Output);
     }
 
+    [Theory]
+    [InlineData(10, 25, "+15 B")]
+    [InlineData(25, 10, "-15 B")]
+    public async Task Cli_DiffExplainsRetainedUnownedFrozenObjectSizeChange(
+        int beforeSize, int afterSize, string expectedDelta)
+    {
+        using var temp = new OwnedTempDirectory(Path.GetTempPath());
+        byte[] Build(int size)
+        {
+            var b = new MstatPeBuilder();
+            var type = b.AddType("Frozen");
+            b.Frozen(type, size, b.AddName("retained"));
+            return b.Build();
+        }
+        string before = InputFixtureBuilder.Plain(temp, "before.mstat", Build(beforeSize));
+        string after = InputFixtureBuilder.Plain(temp, "after.mstat", Build(afterSize));
+
+        var diff = await CliProcess.Run(before, after);
+
+        Assert.Equal(0, diff.ExitCode);
+        Assert.Equal("", diff.Error);
+        Assert.Contains(
+            $"Unowned frozen objects: {beforeSize} B -> {afterSize} B ({expectedDelta})",
+            diff.Output);
+        Assert.DoesNotContain("New frozen objects", diff.Output);
+        Assert.DoesNotContain("Removed frozen objects", diff.Output);
+    }
+
     [Fact]
     public async Task Cli_LargeDeclaredTotalsRemainPositiveAndUntruncated()
     {
@@ -421,6 +449,46 @@ public sealed class CliTests
         Assert.StartsWith("Invalid --limit value: 0", badOption.Error);
     }
 
+    [Fact]
+    public async Task Cli_WhyMalformedDgmlReturnsConciseFailureWithoutStackTrace()
+    {
+        using var temp = new OwnedTempDirectory(Path.GetTempPath());
+        string graph = temp.FilePath("malformed.dgml.xml");
+        File.WriteAllText(graph, "<DirectedGraph><Nodes><Node Id=\"1\"");
+
+        var result = await CliProcess.RunWithCache(temp.FilePath("cache"), "why", graph, "node");
+
+        AssertCliFailureIsConcise(result, "DGML");
+    }
+
+    [Fact]
+    public async Task Cli_WhyEmptyCachePathReturnsConciseFailureWithoutStackTrace()
+    {
+        using var temp = new OwnedTempDirectory(Path.GetTempPath());
+        string graph = temp.FilePath("app.dgml.xml");
+        File.WriteAllText(graph, WhyGraph);
+
+        var result = await CliProcess.RunWithCache(temp.FilePath("fallback-cache"),
+            "why", graph, "root", "--cache", "");
+
+        AssertCliFailureIsConcise(result, "cache");
+    }
+
+    [Fact]
+    public async Task Cli_WhyCachePathThatIsAFileReturnsConciseFailureWithoutStackTrace()
+    {
+        using var temp = new OwnedTempDirectory(Path.GetTempPath());
+        string graph = temp.FilePath("app.dgml.xml");
+        File.WriteAllText(graph, WhyGraph);
+        string cacheFile = temp.FilePath("not-a-directory");
+        File.WriteAllText(cacheFile, "occupied");
+
+        var result = await CliProcess.RunWithCache(temp.FilePath("fallback-cache"),
+            "why", graph, "root", "--cache", cacheFile);
+
+        AssertCliFailureIsConcise(result, cacheFile);
+    }
+
     private const string MetadataLog = """
         Handle, Kind, Name, Children
         01000000, ScopeDefinition, "App", "2000010"
@@ -446,8 +514,9 @@ public sealed class CliTests
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("", result.Error);
         // 0x07000010 follows 0x06f00000, so its 24-bit offset wrapped: 0x1000010.
-        Assert.StartsWith("Metadata blob: 16,777,232 bytes in 8 records (end of last record not logged)" + nl
-            + "NativeAOT metadata limit: 33,554,431 bytes -- 16,777,199 bytes of headroom" + nl, result.Output);
+        Assert.StartsWith("Metadata blob: at least 16,777,232 bytes in 8 records (final record length unknown)" + nl
+            + "NativeAOT metadata limit: 33,554,431 bytes -- headroom unknown" + nl, result.Output);
+        Assert.DoesNotContain("16,777,199 bytes of headroom", result.Output);
         Assert.Contains("=== By record kind ===" + nl
             + "     15,728,528  93.7%           3  ConstantStringValue" + nl
             + "      1,048,592   6.3%           1  MethodSignature" + nl
@@ -469,6 +538,52 @@ public sealed class CliTests
         Assert.Equal(0, filtered.ExitCode);
         Assert.Contains("Filtered to assembly: Other" + nl + nl + "=== By namespace ===" + nl + nl + "=== By type ===" + nl + nl
             + "=== Largest strings ===" + nl + nl, filtered.Output);
+    }
+
+    [Fact]
+    public async Task Cli_MetadataFinalOffsetOverLimitReportsDefinitiveLowerBound()
+    {
+        using var temp = new OwnedTempDirectory(Path.GetTempPath());
+        string log = temp.FilePath("over.metadata.csv");
+        File.WriteAllText(log, """
+            Handle, Kind, Name, Children
+            01f00000, ConstantInt32Value, "1", ""
+            02000010, ConstantInt32Value, "2", ""
+            03f00000, ConstantInt32Value, "3", ""
+            04000020, ConstantInt32Value, "4", ""
+            """);
+
+        var result = await CliProcess.RunWithCache(temp.FilePath("cache"), "metadata", log);
+
+        string nl = Environment.NewLine;
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("", result.Error);
+        Assert.StartsWith("Metadata blob: at least 33,554,464 bytes in 4 records (final record length unknown)" + nl
+            + "NativeAOT metadata limit: 33,554,431 bytes -- OVER by at least 33" + nl, result.Output);
+        Assert.DoesNotContain("headroom unknown", result.Output);
+    }
+
+    [Fact]
+    public async Task Cli_MetadataFinalOffsetAtLimitKeepsHeadroomUnknown()
+    {
+        using var temp = new OwnedTempDirectory(Path.GetTempPath());
+        string log = temp.FilePath("at-limit.metadata.csv");
+        File.WriteAllText(log, """
+            Handle, Kind, Name, Children
+            01f00000, ConstantInt32Value, "1", ""
+            02000010, ConstantInt32Value, "2", ""
+            03ffffff, ConstantInt32Value, "3", ""
+            """);
+
+        var result = await CliProcess.RunWithCache(temp.FilePath("cache"), "metadata", log);
+
+        string nl = Environment.NewLine;
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("", result.Error);
+        Assert.StartsWith("Metadata blob: at least 33,554,431 bytes in 3 records (final record length unknown)" + nl
+            + "NativeAOT metadata limit: 33,554,431 bytes -- headroom unknown" + nl, result.Output);
+        Assert.DoesNotContain("OVER", result.Output);
+        Assert.DoesNotContain("bytes of headroom", result.Output);
     }
 
     [Fact]
@@ -506,5 +621,17 @@ public sealed class CliTests
         }
         File.WriteAllBytes(path, companion == "valid" ? OwnedGraph.Bytes() : Encoding.UTF8.GetBytes("<DirectedGraph><Nodes>"));
         return File.Open(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
+    }
+
+    private static void AssertCliFailureIsConcise(
+        (int ExitCode, string Output, string Error) result, string expectedDiagnostic)
+    {
+        Assert.Equal(1, result.ExitCode);
+        Assert.Equal("", result.Output);
+        Assert.Contains(expectedDiagnostic, result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Unhandled exception", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("System.", result.Error, StringComparison.Ordinal);
+        Assert.DoesNotContain(" at ", result.Error, StringComparison.Ordinal);
+        Assert.InRange(result.Error.Length, 1, 500);
     }
 }

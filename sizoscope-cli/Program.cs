@@ -264,6 +264,13 @@ namespace SizoscopeCli
                 writer.WriteLine($"  New frozen objects: +{AsFileSize(rightDiff.UnownedFrozenObjectSize)}");
             if (leftDiff.UnownedFrozenObjectSize > 0)
                 writer.WriteLine($"  Removed frozen objects: -{AsFileSize(leftDiff.UnownedFrozenObjectSize)}");
+            long frozenNet = right.UnownedFrozenObjectSize - left.UnownedFrozenObjectSize;
+            long frozenPresence = rightDiff.UnownedFrozenObjectSize - leftDiff.UnownedFrozenObjectSize;
+            long retainedFrozen = frozenNet - frozenPresence;
+            if (frozenNet != 0)
+                writer.WriteLine($"  Unowned frozen objects: {AsFileSize(left.UnownedFrozenObjectSize)} -> {AsFileSize(right.UnownedFrozenObjectSize)} ({SignedFileSize(frozenNet)})");
+            if (retainedFrozen != 0)
+                writer.WriteLine($"  Retained frozen objects: {SignedFileSize(retainedFrozen)}");
             if (rightDiff.BlobsSize > 0)
                 writer.WriteLine($"  New blobs: +{AsFileSize(rightDiff.BlobsSize)}");
             if (leftDiff.BlobsSize > 0)
@@ -271,7 +278,7 @@ namespace SizoscopeCli
             if (left.BlobsSize != right.BlobsSize)
                 writer.WriteLine($"  Blobs: {AsFileSize(left.BlobsSize)} -> {AsFileSize(right.BlobsSize)} ({SignedFileSize(right.BlobsSize - left.BlobsSize)})");
             if (rightDiff.UnownedFrozenObjectSize > 0 || leftDiff.UnownedFrozenObjectSize > 0
-                || rightDiff.BlobsSize > 0 || leftDiff.BlobsSize > 0 || left.BlobsSize != right.BlobsSize)
+                || frozenNet != 0 || rightDiff.BlobsSize > 0 || leftDiff.BlobsSize > 0 || left.BlobsSize != right.BlobsSize)
                 writer.WriteLine();
 
             // The sections above only list items present on one side. Items present in both inputs whose size

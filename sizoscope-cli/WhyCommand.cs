@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Xml;
 
 namespace SizoscopeCli
 {
@@ -62,13 +63,22 @@ namespace SizoscopeCli
                 return 1;
             }
 
-            using var store = OpenIndex(graphPath, rebuild, cacheRoot);
-            if (outputFile != null)
+            try
             {
-                using var writer = new StreamWriter(outputFile);
-                return Explain(writer, store, query, exact, limit, incoming, visitLimit);
+                using var store = OpenIndex(graphPath, rebuild, cacheRoot);
+                if (outputFile != null)
+                {
+                    using var writer = new StreamWriter(outputFile);
+                    return Explain(writer, store, query, exact, limit, incoming, visitLimit);
+                }
+                return Explain(Console.Out, store, query, exact, limit, incoming, visitLimit);
             }
-            return Explain(Console.Out, store, query, exact, limit, incoming, visitLimit);
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException
+                or XmlException or ArgumentException or NotSupportedException)
+            {
+                Console.Error.WriteLine($"Unable to analyze DGML or dependency graph cache: {ex.Message}");
+                return 1;
+            }
         }
 
         static bool TryParseCount(string value, int minimum, out int result)

@@ -101,11 +101,11 @@ namespace SizoscopeCli
         {
             int count = log.Count;
             long total = count == 0 ? 0 : log.Offsets[count - 1];
-            w.WriteLine($"Metadata blob: {total:N0} bytes in {count:N0} records (end of last record not logged)");
+            w.WriteLine($"Metadata blob: at least {total:N0} bytes in {count:N0} records (final record length unknown)");
             long delta = total - MetadataLimit;
             w.WriteLine(delta > 0
-                ? $"NativeAOT metadata limit: {MetadataLimit:N0} bytes -- OVER by {delta:N0}"
-                : $"NativeAOT metadata limit: {MetadataLimit:N0} bytes -- {-delta:N0} bytes of headroom");
+                ? $"NativeAOT metadata limit: {MetadataLimit:N0} bytes -- OVER by at least {delta:N0}"
+                : $"NativeAOT metadata limit: {MetadataLimit:N0} bytes -- headroom unknown");
 
             var owners = log.ComputeOwners();
             var kinds = new Dictionary<string, (long Size, int Count)>();

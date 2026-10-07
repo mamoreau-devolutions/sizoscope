@@ -139,8 +139,8 @@ NativeAOT fails when the reflection metadata blob grows past 33,554,431 bytes. N
 
 ```shell
 $ sizoscope-cli metadata obj/Release/net10.0/win-x64/native/app.metadata.csv --top 10
-Metadata blob: 41,148,129 bytes in 1,438,991 records (end of last record not logged)
-NativeAOT metadata limit: 33,554,431 bytes -- OVER by 7,593,698
+Metadata blob: at least 41,148,129 bytes in 1,438,991 records (final record length unknown)
+NativeAOT metadata limit: 33,554,431 bytes -- OVER by at least 7,593,698
 ...
 ```
 
@@ -152,7 +152,7 @@ The report has these sections:
 - the largest strings
 - records that no type definition owns, typically method names and signatures kept only for stack traces (`StackTraceSupport`)
 
-Record sizes come from consecutive handle offsets, and each record is charged to the first assembly, namespace, or type that reaches it. Options: `--top N`, `--assembly NAME`, `--output FILE`.
+Record sizes come from consecutive handle offsets, and each record is charged to the first assembly, namespace, or type that reaches it. Because the log does not include the final record's length, the reported blob size is a lower bound: exceeding the limit is definitive, while remaining headroom cannot be known from this file alone. Options: `--top N`, `--assembly NAME`, `--output FILE`.
 
 ## Regression tests
 
