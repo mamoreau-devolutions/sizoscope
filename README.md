@@ -133,6 +133,27 @@ Shortest chain from a root (2 steps, 4 nodes visited):
 
 The query is an exact node label, a case-insensitive substring, or `#<id>`. If a query matches several nodes, the command lists them. Options: `--exact`, `--limit N`, `--incoming N`, `--max-visit N`, `--cache DIR`, `--rebuild`, `--output FILE`.
 
+## Analyzing the reflection metadata blob
+
+NativeAOT fails when the reflection metadata blob grows past 33,554,431 bytes. No MSTAT is written in that case. Add `<IlcGenerateMetadataLog>true</IlcGenerateMetadataLog>` to the project, and ILC writes `<app>.metadata.csv` even when the build fails. `sizoscope-cli metadata` breaks that log down:
+
+```shell
+$ sizoscope-cli metadata obj/Release/net10.0/win-x64/native/app.metadata.csv --top 10
+Metadata blob: 41,148,129 bytes in 1,438,991 records (end of last record not logged)
+NativeAOT metadata limit: 33,554,431 bytes -- OVER by 7,593,698
+...
+```
+
+The report has these sections:
+- by record kind
+- by assembly
+- by namespace
+- by type
+- the largest strings
+- records that no type definition owns, typically method names and signatures kept only for stack traces (`StackTraceSupport`)
+
+Record sizes come from consecutive handle offsets, and each record is charged to the first assembly, namespace, or type that reaches it. Options: `--top N`, `--assembly NAME`, `--output FILE`.
+
 ## Regression tests
 
 The non-GUI regression harness covers MSTAT decoding, CLI reports, 64-bit accounting, graph indexing, cache integrity, and session lifetimes:

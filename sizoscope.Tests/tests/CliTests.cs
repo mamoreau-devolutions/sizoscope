@@ -308,6 +308,80 @@ public sealed class CliTests
         Assert.StartsWith("Invalid --limit value: 0", badOption.Error);
     }
 
+    private const string MetadataLog = """
+        Handle, Kind, Name, Children
+        01000000, ScopeDefinition, "App", "2000010"
+        02000010, NamespaceDefinition, "App.Ns", "3000020"
+        03000020, TypeDefinition, "App.Ns.Big+<>c (03000020)", "4000030 b000040 7000010"
+        04000030, ConstantStringValue, "first line
+        second, "quoted" line", ""
+        0b000040, ConstantInt32Value, "42", ""
+        05000080, ConstantStringValue, "OrphanMethodName", ""
+        06f00000, MethodSignature, "sig", ""
+        07000010, ConstantStringValue, "after wrap", ""
+        """;
+
+    [Fact]
+    public async Task Cli_MetadataAttributesRecordsAndUnwrapsOffsets()
+    {
+        using var temp = new OwnedTempDirectory(Path.GetTempPath());
+        string log = temp.FilePath("app.metadata.csv");
+        File.WriteAllText(log, MetadataLog);
+        string nl = Environment.NewLine;
+
+        var result = await CliProcess.RunWithCache(temp.FilePath("cache"), "metadata", log, "--top", "5");
+        Assert.Equal(0, result.ExitCode);
+        Assert.Equal("", result.Error);
+        // 0x07000010 follows 0x06f00000, so its 24-bit offset wrapped: 0x1000010.
+        Assert.StartsWith("Metadata blob: 16,777,232 bytes in 8 records (end of last record not logged)" + nl
+            + "NativeAOT metadata limit: 33,554,431 bytes -- 16,777,199 bytes of headroom" + nl, result.Output);
+        Assert.Contains("=== By record kind ===" + nl
+            + "     15,728,528  93.7%           3  ConstantStringValue" + nl
+            + "      1,048,592   6.3%           1  MethodSignature" + nl
+            + "             64   0.0%           1  ConstantInt32Value" + nl, result.Output);
+        Assert.Contains("=== By assembly ===" + nl + "            128   0.0%  App" + nl
+            + "     16,777,104 100.0%  (not owned by any type definition)" + nl, result.Output);
+        Assert.Contains("=== By namespace ===" + nl + "            112   0.0%  [App] App.Ns" + nl
+            + "             16   0.0%  [App] <global>" + nl, result.Output);
+        Assert.Contains("=== By type ===" + nl + "             96   0.0%  [App] App.Ns.Big+<>c" + nl + nl, result.Output);
+        Assert.Contains("=== Largest strings ===" + nl
+            + "     15,728,512  93.7%  (unowned): \"OrphanMethodName\"" + nl
+            + "             16   0.0%  [App] App.Ns.Big+<>c: \"first line second, \"quoted\" line\"" + nl, result.Output);
+        Assert.EndsWith("=== Not owned by any type definition ===" + nl
+            + "  Typically method names/signatures kept only for stack traces (StackTraceSupport)." + nl
+            + "     15,728,512  93.7%           1  ConstantStringValue" + nl
+            + "      1,048,592   6.3%           1  MethodSignature" + nl, result.Output);
+
+        var filtered = await CliProcess.RunWithCache(temp.FilePath("cache"), "metadata", log, "--assembly", "Other");
+        Assert.Equal(0, filtered.ExitCode);
+        Assert.Contains("Filtered to assembly: Other" + nl + nl + "=== By namespace ===" + nl + nl + "=== By type ===" + nl + nl
+            + "=== Largest strings ===" + nl + nl, filtered.Output);
+    }
+
+    [Fact]
+    public async Task Cli_MetadataRejectsInvalidInput()
+    {
+        using var temp = new OwnedTempDirectory(Path.GetTempPath());
+        string bogus = temp.FilePath("bogus.csv");
+        File.WriteAllText(bogus, "not,a,metadata,log\n");
+
+        var invalid = await CliProcess.RunWithCache(temp.FilePath("cache"), "metadata", bogus);
+        Assert.Equal(1, invalid.ExitCode);
+        Assert.StartsWith("Not a valid ILC metadata log: missing 'Handle, Kind, Name, Children' header.", invalid.Error);
+
+        var missing = await CliProcess.RunWithCache(temp.FilePath("cache"), "metadata", temp.FilePath("none.csv"));
+        Assert.Equal(1, missing.ExitCode);
+        Assert.StartsWith("File not found:", missing.Error);
+
+        var badTop = await CliProcess.RunWithCache(temp.FilePath("cache"), "metadata", bogus, "--top", "0");
+        Assert.Equal(1, badTop.ExitCode);
+        Assert.StartsWith("Invalid --top value: 0", badTop.Error);
+
+        var help = await CliProcess.RunWithCache(temp.FilePath("cache"), "metadata", "--help");
+        Assert.Equal(0, help.ExitCode);
+        Assert.StartsWith("Usage: sizoscope-cli metadata <app.metadata.csv> [options]", help.Output);
+    }
+
     private static FileStream LockCompanion(OwnedTempDirectory temp, string mstat, string companion)
     {
         string path = Path.ChangeExtension(mstat, "scan.dgml.xml");
