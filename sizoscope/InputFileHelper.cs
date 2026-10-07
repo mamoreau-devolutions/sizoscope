@@ -75,10 +75,10 @@ namespace sizoscope
 
                 // Look for a companion .scan.dgml.xml file
                 ZipArchiveEntry? dgmlEntry = null;
-                string dgmlName = Path.ChangeExtension(mstatEntry.Name, "scan.dgml.xml");
+                string dgmlName = Path.ChangeExtension(mstatEntry.FullName, "scan.dgml.xml");
                 foreach (var entry in archive.Entries)
                 {
-                    if (string.Equals(entry.Name, dgmlName, StringComparison.OrdinalIgnoreCase) && entry.Length > 0)
+                    if (string.Equals(entry.FullName, dgmlName, StringComparison.OrdinalIgnoreCase) && entry.Length > 0)
                     {
                         dgmlEntry = entry;
                         break;

@@ -65,6 +65,7 @@ In the above screenshot, the reason why the top node was included in the executa
 * Holding Alt when dragging and dropping will open a diff against the open file.
 * MSTAT files are loaded to memory and the associated file system files are closed. This is done on purpose so that you can quickly do before/after comparisons: simply open the MSTAT, make your change to the project and re-publish, and do a diff _against the same file_.
 * Both the GUI and CLI tools accept `.zip` archives containing `.mstat` (and optionally `.scan.dgml.xml`) files. The `.mstat` is read directly from the archive without extracting to disk.
+* Sizes and aggregate differences use 64-bit accounting and display in units up to TB. MSTAT input files still need to fit the PE reader's signed 32-bit length limit (at most 2,147,483,647 bytes).
 
 ## Command-line diffing
 
@@ -94,4 +95,12 @@ ZIP archives work as well:
 
 ```shell
 $ sizoscope-cli baseline.mstat.zip compare.mstat.zip
+```
+
+## Regression tests
+
+The focused regression project covers MSTAT decoding and model lifetimes, 64-bit size accounting, input archive handling, and size formatting:
+
+```shell
+dotnet test .\sizoscope.Tests\sizoscope.Tests.csproj --configuration Release
 ```

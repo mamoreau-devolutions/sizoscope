@@ -34,8 +34,8 @@ partial class MstatData
     {
         public int NodeId;
         public int HashCode;
-        public int Size;
-        public int AggregateSize;
+        public long Size;
+        public long AggregateSize;
 
         public TypeReferenceHandle FirstNestedType;
         public MemberReferenceHandle FirstMember;
@@ -72,11 +72,11 @@ partial class MstatData
             NodeId = -1;
         }
 
-        internal void AddSize(MstatData data, TypeReferenceHandle handle, int size)
+        internal void AddSize(MstatData data, TypeReferenceHandle handle, long size)
         {
             Debug.Assert(Unsafe.AreSame(ref this, ref Unsafe.Add(ref data._typeRefCache[0], MetadataTokens.GetRowNumber(handle))));
             
-            AggregateSize += size;
+            AggregateSize = checked(AggregateSize + size);
             
             TypeReference typeRef = data._reader.GetTypeReference(handle);
             if (typeRef.ResolutionScope.Kind != HandleKind.TypeReference)
@@ -90,8 +90,8 @@ partial class MstatData
     {
         public int NodeId;
         public int HashCode;
-        public int Size;
-        public int AggregateSize;
+        public long Size;
+        public long AggregateSize;
 
         public TypeSpecificationHandle NextTypeSpec;
         public MemberReferenceHandle FirstMember;
@@ -116,11 +116,11 @@ partial class MstatData
             NodeId = -1;
         }
 
-        internal void AddSize(MstatData data, TypeSpecificationHandle handle, int size)
+        internal void AddSize(MstatData data, TypeSpecificationHandle handle, long size)
         {
             Debug.Assert(Unsafe.AreSame(ref this, ref Unsafe.Add(ref data._typeSpecCache[0], MetadataTokens.GetRowNumber(handle))));
 
-            AggregateSize += size;
+            AggregateSize = checked(AggregateSize + size);
 
             TypeSpecification typeSpec = data._reader.GetTypeSpecification(handle);
 
@@ -158,8 +158,8 @@ partial class MstatData
     struct MemberRefRowCache
     {
         public int NodeId;
-        public int Size;
-        public int AggregateSize;
+        public long Size;
+        public long AggregateSize;
         public int HashCode;
 
         public MemberReferenceHandle NextMemberRef;
@@ -191,11 +191,11 @@ partial class MstatData
             NodeId = -1;
         }
 
-        internal void AddSize(MstatData data, MemberReferenceHandle handle, int size)
+        internal void AddSize(MstatData data, MemberReferenceHandle handle, long size)
         {
             Debug.Assert(Unsafe.AreSame(ref this, ref Unsafe.Add(ref data._memberRefCache[0], MetadataTokens.GetRowNumber(handle))));
 
-            AggregateSize += size;
+            AggregateSize = checked(AggregateSize + size);
 
             MemberReference memberRef = data.MetadataReader.GetMemberReference(handle);
             if (memberRef.Parent.Kind == HandleKind.TypeReference)
@@ -208,7 +208,7 @@ partial class MstatData
     struct MethodSpecRowCache
     {
         public int NodeId;
-        public int Size;
+        public long Size;
         public int HashCode;
 
         public MethodSpecificationHandle NextMethodSpec;
@@ -228,7 +228,7 @@ partial class MstatData
             NodeId = -1;
         }
 
-        internal void AddSize(MstatData data, MethodSpecificationHandle handle, int size)
+        internal void AddSize(MstatData data, MethodSpecificationHandle handle, long size)
         {
             Debug.Assert(Unsafe.AreSame(ref this, ref Unsafe.Add(ref data._methodSpecCache[0], MetadataTokens.GetRowNumber(handle))));
 
@@ -239,17 +239,17 @@ partial class MstatData
 
     struct AssemblyRefRowCache
     {
-        public int AggregateSize;
+        public long AggregateSize;
 
         public TypeReferenceHandle FirstTypeRef;
         public ManifestResourceHandle FirstManifestResource;
 
-        internal void AddSize(int size) => AggregateSize += size;
+        internal void AddSize(long size) => AggregateSize = checked(AggregateSize + size);
     }
 
     struct ManifestResourceRowCache
     {
-        public int Size;
+        public long Size;
         public string Name;
         public AssemblyReferenceHandle OwningAssembly;
 
@@ -258,7 +258,7 @@ partial class MstatData
 
     struct FrozenObjectRowCache
     {
-        public int Size;
+        public long Size;
         public int NodeId;
         public EntityHandle InstanceType;
         public EntityHandle OwningEntity;

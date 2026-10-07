@@ -52,7 +52,7 @@ namespace SizoscopeCli
                 right = MstatData.Read(ms, resolvedRight.MstatLength, () => null);
 
             (MstatData leftDiff, MstatData rightDiff) = MstatData.Diff(left, right);
-            int diffSize = right.Size - left.Size;
+            long diffSize = checked(right.Size - left.Size);
 
             if (outputFile != null)
             {
@@ -78,21 +78,15 @@ namespace SizoscopeCli
             Console.Error.WriteLine("  --output <file>  Write output to a file instead of stdout");
         }
 
-        static string AsFileSize(int size)
-            => Math.Abs(size) switch
-            {
-                < 1024 => $"{size:F0} B",
-                < 1024 * 1024 => $"{size / 1024f:F1} kB",
-                _ => $"{size / (1024f * 1024f):F1} MB",
-            };
+        static string AsFileSize(long size) => FileSizeFormatter.Format(size);
 
-        static void PrintDiff(TextWriter writer, MstatData leftDiff, MstatData rightDiff, int totalDiffSize)
+        static void PrintDiff(TextWriter writer, MstatData leftDiff, MstatData rightDiff, long totalDiffSize)
         {
             writer.WriteLine($"Total accounted size difference: {AsFileSize(totalDiffSize)}");
             writer.WriteLine();
 
             // Collect assemblies from the right diff (new/grown items)
-            var grown = new List<(string Name, int Size)>();
+            var grown = new List<(string Name, long Size)>();
             foreach (var asm in rightDiff.GetScopes())
             {
                 if (asm.Name == "System.Private.CompilerGenerated")
@@ -103,7 +97,7 @@ namespace SizoscopeCli
             }
 
             // Collect assemblies from the left diff (removed/shrunk items)
-            var shrunk = new List<(string Name, int Size)>();
+            var shrunk = new List<(string Name, long Size)>();
             foreach (var asm in leftDiff.GetScopes())
             {
                 if (asm.Name == "System.Private.CompilerGenerated")

@@ -5,23 +5,35 @@ partial class MstatData
 {
     public static (MstatData Left, MstatData Right) Diff(MstatData left, MstatData right)
     {
-        MstatData leftDiff = new MstatData(left._peReader);
-        leftDiff._nameToNode = left._nameToNode;
-        if (left._manifestResourceCache != null)
-            leftDiff._manifestResourceCache = new ManifestResourceRowCache[left._manifestResourceCache.Length];
-        if (left._frozenObjectCache != null)
-            leftDiff._frozenObjectCache = new FrozenObjectRowCache[left._frozenObjectCache.Length];
-        MstatData rightDiff = new MstatData(right._peReader);
-        rightDiff._nameToNode = right._nameToNode;
-        if (right._manifestResourceCache != null)
-            rightDiff._manifestResourceCache = new ManifestResourceRowCache[right._manifestResourceCache.Length];
-        if (right._frozenObjectCache != null)
-            rightDiff._frozenObjectCache = new FrozenObjectRowCache[right._frozenObjectCache.Length];
+        MstatData leftDiff = null;
+        MstatData rightDiff = null;
+        try
+        {
+            leftDiff = new MstatData(left._image.Retain());
+            leftDiff._nameToNode = left._nameToNode;
+            if (left._manifestResourceCache != null)
+                leftDiff._manifestResourceCache = new ManifestResourceRowCache[left._manifestResourceCache.Length];
+            if (left._frozenObjectCache != null)
+                leftDiff._frozenObjectCache = new FrozenObjectRowCache[left._frozenObjectCache.Length];
 
-        AddToDiff(left, right, leftDiff);
-        AddToDiff(right, left, rightDiff);
+            rightDiff = new MstatData(right._image.Retain());
+            rightDiff._nameToNode = right._nameToNode;
+            if (right._manifestResourceCache != null)
+                rightDiff._manifestResourceCache = new ManifestResourceRowCache[right._manifestResourceCache.Length];
+            if (right._frozenObjectCache != null)
+                rightDiff._frozenObjectCache = new FrozenObjectRowCache[right._frozenObjectCache.Length];
 
-        return (leftDiff, rightDiff);
+            AddToDiff(left, right, leftDiff);
+            AddToDiff(right, left, rightDiff);
+
+            return (leftDiff, rightDiff);
+        }
+        catch
+        {
+            leftDiff?.Dispose();
+            rightDiff?.Dispose();
+            throw;
+        }
     }
 
     private static void AddToDiff(MstatData left, MstatData right, MstatData result)
@@ -220,7 +232,7 @@ partial class MstatData
         {
             cache.NextFrozenObject = result._firstUnownedFrozenObject;
             result._firstUnownedFrozenObject = o.Handle;
-            result._unownedFrozenObjectSize += o.Size;
+            result._unownedFrozenObjectSize = checked(result._unownedFrozenObjectSize + o.Size);
         }
         else if (o.OwningEntity.Kind == HandleKind.TypeReference)
         {

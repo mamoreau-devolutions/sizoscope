@@ -223,13 +223,7 @@ namespace sizoscope
             }
         }
 
-        public static string AsFileSize(int size)
-            => Math.Abs(size) switch
-            {
-                < 1024 => $"{size:F0} B",
-                < 1024 * 1024 => $"{size / 1024f:F1} kB",
-                _ => $"{size / (1024f * 1024f):F1} MB",
-            };
+        public static string AsFileSize(long size) => FileSizeFormatter.Format(size);
 
         public class Sorter
         {
@@ -239,7 +233,7 @@ namespace sizoscope
 
             public IEnumerable<MstatAssembly> Sort(IEnumerable<MstatAssembly> asms)
                 => _key == "Name" ? asms.OrderBy(a => a.Name) : asms.OrderByDescending(a => a.AggregateSize);
-            public IEnumerable<(string Name, int AggregateSize)> Sort(IEnumerable<(string Name, int AggregateSize)> ns)
+            public IEnumerable<(string Name, long AggregateSize)> Sort(IEnumerable<(string Name, long AggregateSize)> ns)
                 => _key == "Name" ? ns.OrderBy(n => n.Name) : ns.OrderByDescending(n => n.AggregateSize);
 
             public IEnumerable<MstatTypeSpecification> Sort(IEnumerable<MstatTypeSpecification> specs)

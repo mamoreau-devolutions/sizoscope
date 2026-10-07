@@ -11,7 +11,7 @@ namespace sizoscope
         /// <summary>
         /// Creates a DiffForm with pre-computed diff data (used from MainForm diff button).
         /// </summary>
-        public DiffForm(MstatData leftDiff, MstatData rightDiff, int diffSize)
+        public DiffForm(MstatData leftDiff, MstatData rightDiff, long diffSize)
         {
             InitializeComponent();
             InitializeCommon();
@@ -68,7 +68,7 @@ namespace sizoscope
                         right = MstatData.Read(ms, rr.MstatLength, rr.OpenDgml);
 
                     (MstatData ld, MstatData rd) = MstatData.Diff(left, right);
-                    int ds = right.Size - left.Size;
+                    long ds = checked(right.Size - left.Size);
 
                     return (ld, rd, ds, rl, rr);
                 });

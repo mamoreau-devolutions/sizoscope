@@ -95,7 +95,7 @@ namespace sizoscope
 
                 (MstatData leftDiff, MstatData rightDiff) = MstatData.Diff(_data, right);
 
-                new DiffForm(leftDiff, rightDiff, right.Size - _data.Size).ShowDialog(this);
+                new DiffForm(leftDiff, rightDiff, checked(right.Size - _data.Size)).ShowDialog(this);
             }
         }
 
@@ -225,14 +225,14 @@ namespace sizoscope
                 }
                 else
                 {
-                    int v1 = i1.Tag switch
+                    long v1 = i1.Tag switch
                     {
                         MstatTypeDefinition def => SortColumn == 1 ? def.Size : def.AggregateSize,
                         MstatTypeSpecification spec => SortColumn == 1 ? spec.Size : spec.AggregateSize,
                         MstatMemberDefinition mem => SortColumn == 1 ? mem.Size : mem.AggregateSize,
                         MstatMethodSpecification met => met.Size,
                     };
-                    int v2 = i2.Tag switch
+                    long v2 = i2.Tag switch
                     {
                         MstatTypeDefinition def => SortColumn == 1 ? def.Size : def.AggregateSize,
                         MstatTypeSpecification spec => SortColumn == 1 ? spec.Size : spec.AggregateSize,
@@ -346,7 +346,7 @@ namespace sizoscope
                     using (var mstatStream = resolved.OpenMstat())
                         right = MstatData.Read(mstatStream, resolved.MstatLength, resolved.OpenDgml);
                     (MstatData leftDiff, MstatData rightDiff) = MstatData.Diff(_data, right);
-                    new DiffForm(leftDiff, rightDiff, right.Size - _data.Size).ShowDialog(this);
+                    new DiffForm(leftDiff, rightDiff, checked(right.Size - _data.Size)).ShowDialog(this);
                 });
             }
             else
