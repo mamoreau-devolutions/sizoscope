@@ -126,7 +126,7 @@ public sealed class CliSummaryDiffTests
     }
 
     [Fact]
-    public async Task HelpListsWhyAndInvalidTopFails()
+    public async Task HelpListsSubcommandsAndInvalidTopFails()
     {
         (int exitCode, string output, string error) =
             await CliProcess.Run("--help");
@@ -136,7 +136,7 @@ public sealed class CliSummaryDiffTests
         Assert.Contains("Usage: sizoscope-cli <file.mstat|.zip>", output);
         Assert.Contains("--top <n>", output);
         Assert.Contains("sizoscope-cli why <graph.dgml.xml> <query>", output);
-        Assert.DoesNotContain("metadata", output, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("sizoscope-cli metadata <app.metadata.csv>", output);
 
         (exitCode, output, error) =
             await CliProcess.Run("input.mstat", "--top", "-1");
