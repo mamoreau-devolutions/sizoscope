@@ -135,6 +135,25 @@ $ sizoscope-cli baseline.mstat.zip compare.mstat.zip
 
 Run `sizoscope-cli --help` for concise usage and option details.
 
+## Explaining why a node is in a dependency graph
+
+`sizoscope-cli why` answers "why is this here?" from a `.scan.dgml.xml` or `.codegen.dgml.xml` file. It works even when no MSTAT exists, for example when ILC failed after writing the graph. The graph is indexed once into the disk-backed cache, so multi-gigabyte graphs stay out of memory. Later queries reuse the index.
+
+```shell
+$ sizoscope-cli why app.scan.dgml.xml "Big.Generated.Context"
+Node #3: Reflectable type: Big.Generated.Context
+
+Direct dependents:
+  #2 Method: Startup  [typeof]
+
+Shortest chain from a root (2 steps, 4 nodes visited):
+  #1 Root: Main
+    -> #2 Method: Startup  [call]
+      -> #3 Reflectable type: Big.Generated.Context  [typeof]
+```
+
+The query is an exact node label, a case-insensitive substring, or `#<id>`. If a query matches several nodes, the command lists them. Options: `--exact`, `--limit N`, `--incoming N`, `--max-visit N`, `--cache DIR`, `--rebuild`, `--output FILE`.
+
 ## Regression tests
 
 The non-GUI regression harness covers MSTAT decoding and model lifetimes, 64-bit accounting, graph indexing, cache integrity, session lifetimes, and input archive handling:

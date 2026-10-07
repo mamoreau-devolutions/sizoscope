@@ -6,6 +6,9 @@ namespace SizoscopeCli
     {
         static int Main(string[] args)
         {
+            if (args.Length > 0 && args[0].Equals("why", StringComparison.OrdinalIgnoreCase) && !File.Exists(args[0]))
+                return WhyCommand.Run(args[1..]);
+
             string outputFile = null;
             int top = 25;
             var filePaths = new List<string>();
@@ -95,9 +98,11 @@ namespace SizoscopeCli
         {
             writer.WriteLine("Usage: sizoscope-cli <file.mstat|.zip> [--top <n>] [--output <file>]");
             writer.WriteLine("       sizoscope-cli <baseline.mstat|.zip> <compare.mstat|.zip> [--output <file>]");
+            writer.WriteLine("       sizoscope-cli why <graph.dgml.xml> <query> [options]   (see 'why --help')");
             writer.WriteLine();
             writer.WriteLine("With one file, prints the total size, all assemblies ranked by size, and the");
             writer.WriteLine("largest types. With two files, prints a summary of size differences.");
+            writer.WriteLine("'why' explains why nodes are in an ILC dependency graph, without needing an MSTAT.");
             writer.WriteLine();
             writer.WriteLine("Options:");
             writer.WriteLine("  --top <n>        Number of largest types to list in summary mode (default 25)");
