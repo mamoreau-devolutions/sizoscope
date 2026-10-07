@@ -43,9 +43,10 @@ public partial class MstatData : IDisposable
 
     ~MstatData() => Dispose(false);
 
-    private MstatData(SharedImage image)
+    private MstatData(SharedImage image, DependencyGraphSession graph)
     {
         _image = image;
+        _graph = graph;
         _peReader = image.Reader;
         _reader = _peReader.GetMetadataReader();
         _version = _reader.GetAssemblyDefinition().Version;
@@ -63,19 +64,49 @@ public partial class MstatData : IDisposable
 
     public void Dispose() => Dispose(true);
 
+    internal IDisposable RetainBacking()
+    {
+        ObjectDisposedException.ThrowIf(Volatile.Read(ref _disposed) != 0, this);
+        var image = _image.Retain();
+        try
+        {
+            return new BackingLease(image, _graph.RetainOperation());
+        }
+        catch
+        {
+            image.Release();
+            throw;
+        }
+    }
+
+    private sealed class BackingLease(SharedImage image, IDisposable graph) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) == 0)
+            {
+                image.Release();
+                graph.Dispose();
+            }
+        }
+    }
+
     private void Dispose(bool disposing)
     {
         if (Interlocked.Exchange(ref _disposed, 1) != 0)
             return;
-        _image.Release();
+        _graph?.Dispose();
+        _image?.Release();
         if (disposing)
             GC.SuppressFinalize(this);
     }
 
-    public static MstatData Read(Stream mstatStream, long mstatLength)
-        => Read(mstatStream, mstatLength, () => null);
+    public static unsafe MstatData Read(Stream mstatStream, long mstatLength)
+        => Read(mstatStream, mstatLength, null);
 
-    public static unsafe MstatData Read(Stream mstatStream, long mstatLength, Func<Stream> openDgmlStream, bool loadDgmlAsync = false)
+    internal static unsafe MstatData Read(Stream mstatStream, long mstatLength, DependencyGraphInput graphInput)
     {
         ArgumentOutOfRangeException.ThrowIfNegative(mstatLength);
         int length = checked((int)mstatLength);
@@ -86,14 +117,8 @@ public partial class MstatData : IDisposable
         {
             mstatStream.ReadExactly(new Span<byte>(mem, length));
             image = new SharedImage(mem, length);
-            data = new MstatData(image).Parse();
-
-            if (loadDgmlAsync)
-                Task.Run(() => data.LoadDgml(openDgmlStream));
-            else
-                data.LoadDgml(openDgmlStream);
-
-            return data;
+            data = new MstatData(image, new DependencyGraphSession(graphInput));
+            return data.Parse();
         }
         catch
         {

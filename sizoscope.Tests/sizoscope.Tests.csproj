@@ -4,6 +4,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <GenerateProgramFile>false</GenerateProgramFile>
     <IsTestProject>true</IsTestProject>
     <IsPackable>false</IsPackable>
     <CheckForOverflowUnderflow>true</CheckForOverflowUnderflow>
@@ -23,6 +24,7 @@
     <Compile Include="..\sizoscope\MstatData.Graph.cs" Link="Production\MstatData.Graph.cs" />
     <Compile Include="..\sizoscope\MstatData.ObjectModel.cs" Link="Production\MstatData.ObjectModel.cs" />
     <Compile Include="..\sizoscope\InputFileHelper.cs" Link="Production\InputFileHelper.cs" />
+    <Compile Include="..\sizoscope\Dependency*.cs" Exclude="..\sizoscope\DependencyGraphToolbar.cs" Link="Production\%(Filename)%(Extension)" />
     <Compile Include="..\sizoscope\FileSizeFormatter.cs" Link="Production\FileSizeFormatter.cs" />
     <Compile Include="..\sizoscope\TreeLogic.cs" Link="Production\TreeLogic.cs" />
   </ItemGroup>

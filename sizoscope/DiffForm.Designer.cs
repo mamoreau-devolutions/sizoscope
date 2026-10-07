@@ -16,8 +16,12 @@
             if (disposing)
             {
                 components?.Dispose();
-                _resolvedLeft?.Dispose();
-                _resolvedRight?.Dispose();
+                _closing.Cancel();
+                _leftDependencies?.Dispose();
+                _rightDependencies?.Dispose();
+                _leftDiff?.Dispose();
+                _rightDiff?.Dispose();
+                _leftTree.ImageList?.Dispose();
             }
             base.Dispose(disposing);
         }

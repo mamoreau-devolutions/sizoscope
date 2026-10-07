@@ -6,7 +6,8 @@ namespace sizoscope
     {
         private MstatData _leftDiff, _rightDiff;
         private TreeLogic.Sorter _sorter;
-        private ResolvedFile _resolvedLeft, _resolvedRight;
+        private DependencyGraphToolbar _leftDependencies, _rightDependencies;
+        private readonly CancellationTokenSource _closing = new();
 
         /// <summary>
         /// Creates a DiffForm with pre-computed diff data (used from MainForm diff button).
@@ -45,9 +46,13 @@ namespace sizoscope
         {
             _sorter = TreeLogic.Sorter.BySize();
 
-            ImageList imageList = new MainForm()._imageList;
-            _leftTree.ImageList = imageList;
-            _rightTree.ImageList = imageList;
+            using var imageSource = new MainForm();
+            _leftTree.ImageList = new ImageList { ImageStream = imageSource._imageList.ImageStream };
+            _rightTree.ImageList = _leftTree.ImageList;
+            var toolbar = new ToolStrip();
+            toolStripContainer1.TopToolStripPanel.Controls.Add(toolbar);
+            _leftDependencies = new DependencyGraphToolbar(this, toolbar, statusStrip1, () => _leftDiff, "Left dependencies");
+            _rightDependencies = new DependencyGraphToolbar(this, toolbar, statusStrip1, () => _rightDiff, "Right dependencies");
         }
 
         private async Task LoadDiffAsync(string leftFilePath, string rightFilePath)
@@ -56,25 +61,32 @@ namespace sizoscope
             {
                 var result = await Task.Run(() =>
                 {
-                    var rl = ResolvedFile.Open(leftFilePath);
-                    var rr = ResolvedFile.Open(rightFilePath);
+                    using var rl = ResolvedFile.Open(leftFilePath);
+                    using var rr = ResolvedFile.Open(rightFilePath);
 
                     MstatData left;
                     using (var ms = rl.OpenMstat())
-                        left = MstatData.Read(ms, rl.MstatLength, rl.OpenDgml);
+                        left = MstatData.Read(ms, rl.MstatLength, rl.GraphInput);
+                    using var leftLifetime = left;
 
                     MstatData right;
                     using (var ms = rr.OpenMstat())
-                        right = MstatData.Read(ms, rr.MstatLength, rr.OpenDgml);
+                        right = MstatData.Read(ms, rr.MstatLength, rr.GraphInput);
+                    using var rightLifetime = right;
 
+                    _closing.Token.ThrowIfCancellationRequested();
                     (MstatData ld, MstatData rd) = MstatData.Diff(left, right);
                     long ds = checked(right.Size - left.Size);
 
-                    return (ld, rd, ds, rl, rr);
-                });
+                    return (ld, rd, ds);
+                }, _closing.Token);
 
-                _resolvedLeft = result.rl;
-                _resolvedRight = result.rr;
+                if (IsDisposed || _closing.IsCancellationRequested)
+                {
+                    result.ld.Dispose();
+                    result.rd.Dispose();
+                    return;
+                }
                 _leftDiff = result.ld;
                 _rightDiff = result.rd;
 
@@ -85,11 +97,13 @@ namespace sizoscope
                 _leftTree.Enabled = true;
                 _rightTree.Enabled = true;
             }
-            catch (Exception ex)
+            catch (OperationCanceledException) when (_closing.IsCancellationRequested)
             {
-                _toolStripStatusLabel.Text = $"Error: {ex.Message}";
-                _leftTree.Enabled = true;
-                _rightTree.Enabled = true;
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or BadImageFormatException or InvalidOperationException or OverflowException)
+            {
+                if (!IsDisposed)
+                    _toolStripStatusLabel.Text = $"Error: {ex.Message}";
             }
         }
 
@@ -103,25 +117,13 @@ namespace sizoscope
             TreeLogic.BeforeExpand(e.Node, _sorter);
         }
 
-        private void _leftTree_NodeMouseDoubleClick(object sender, TreeNodeMouseClickEventArgs e)
+        private async void _leftTree_NodeMouseDoubleClick(object sender, TreeNodeMouseClickEventArgs e)
         {
-            NodeMouseDoubleClickCommon(e.Node, _leftDiff, _rightDiff);
+            await NodeMouseDoubleClickCommon(e.Node, _leftDiff, _rightDiff);
         }
 
-        private void NodeMouseDoubleClickCommon(TreeNode treeNode, MstatData data, MstatData compare)
+        private Task NodeMouseDoubleClickCommon(TreeNode treeNode, MstatData data, MstatData compare)
         {
-            if (!data.DgmlSupported)
-            {
-                MessageBox.Show("Dependency graph information is only available in .NET 8 or later.");
-                return;
-            }
-
-            if (!data.DgmlAvailable)
-            {
-                MessageBox.Show("Dependency graph data was not found. Ensure IlcGenerateDgmlFile=true is specified.");
-                return;
-            }
-
             int? id = treeNode.Tag switch
             {
                 MstatTypeDefinition typedef => typedef.NodeId,
@@ -133,27 +135,13 @@ namespace sizoscope
             };
 
             if (id.HasValue)
-            {
-                if (id.Value < 0)
-                {
-                    MessageBox.Show("This node was not used directly and is included for display purposes only. Try analyzing sub nodes.");
-                    return;
-                }
-
-                var node = data.GetNodeForId(id.Value, out string name);
-                if (node == null)
-                {
-                    MessageBox.Show($"Could not find path to roots from {name}.");
-                    return;
-                }
-
-                new RootForm(node, compare).ShowDialog(this);
-            }
+                return DependencyGraphToolbar.ShowRootsAsync(this, data, id.Value, compare);
+            return Task.CompletedTask;
         }
 
-        private void _rightTree_NodeMouseDoubleClick(object sender, TreeNodeMouseClickEventArgs e)
+        private async void _rightTree_NodeMouseDoubleClick(object sender, TreeNodeMouseClickEventArgs e)
         {
-            NodeMouseDoubleClickCommon(e.Node, _rightDiff, _leftDiff);
+            await NodeMouseDoubleClickCommon(e.Node, _rightDiff, _leftDiff);
         }
     }
 }

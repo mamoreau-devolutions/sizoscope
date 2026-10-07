@@ -17,6 +17,8 @@
             {
                 components.Dispose();
             }
+            if (disposing)
+                _closing.Cancel();
             base.Dispose(disposing);
         }
 

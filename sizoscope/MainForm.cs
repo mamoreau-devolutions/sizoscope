@@ -11,7 +11,7 @@ namespace sizoscope
     {
         private string _fileName;
         private MstatData _data;
-        private ResolvedFile _resolvedFile;
+        private readonly DependencyGraphToolbar _dependencies;
 
         private TreeLogic.Sorter TreeSorter => (TreeLogic.Sorter)_sortByComboBox.SelectedItem;
 
@@ -26,6 +26,7 @@ namespace sizoscope
             _searchComboBox.SelectedIndex = 1;
 
             _searchResultsListView.ListViewItemSorter = new SearchResultComparer();
+            _dependencies = new DependencyGraphToolbar(this, toolStrip1, statusStrip1, () => _data, "Dependencies");
         }
 
         public MainForm(string fileName)
@@ -36,16 +37,13 @@ namespace sizoscope
 
         private void LoadData(string fileName)
         {
-            _resolvedFile?.Dispose();
-            _resolvedFile = ResolvedFile.Open(fileName);
-
+            using var resolved = ResolvedFile.Open(fileName);
+            MstatData data;
+            using (var mstatStream = resolved.OpenMstat())
+                data = MstatData.Read(mstatStream, resolved.MstatLength, resolved.GraphInput);
+            _data?.Dispose();
+            _data = data;
             _fileName = fileName;
-
-            if (_data != null)
-                _data.Dispose();
-
-            using (var mstatStream = _resolvedFile.OpenMstat())
-                _data = MstatData.Read(mstatStream, _resolvedFile.MstatLength, _resolvedFile.OpenDgml, loadDgmlAsync: true);
 
             Text = $"{Path.GetFileName(fileName)} - Sizoscope";
 
@@ -91,11 +89,13 @@ namespace sizoscope
                 using var resolved = ResolvedFile.Open(_openFileDialog.FileName);
                 MstatData right;
                 using (var mstatStream = resolved.OpenMstat())
-                    right = MstatData.Read(mstatStream, resolved.MstatLength, resolved.OpenDgml);
+                    right = MstatData.Read(mstatStream, resolved.MstatLength, resolved.GraphInput);
 
+                using var rightLifetime = right;
                 (MstatData leftDiff, MstatData rightDiff) = MstatData.Diff(_data, right);
 
-                new DiffForm(leftDiff, rightDiff, checked(right.Size - _data.Size)).ShowDialog(this);
+                using var diff = new DiffForm(leftDiff, rightDiff, checked(right.Size - _data.Size));
+                diff.ShowDialog(this);
             }
         }
 
@@ -283,20 +283,8 @@ namespace sizoscope
             }
         }
 
-        private void _tree_NodeMouseDoubleClick(object sender, TreeNodeMouseClickEventArgs e)
+        private async void _tree_NodeMouseDoubleClick(object sender, TreeNodeMouseClickEventArgs e)
         {
-            if (!_data.DgmlSupported)
-            {
-                MessageBox.Show("Dependency graph information is only available in .NET 8 or later.");
-                return;
-            }
-
-            if (!_data.DgmlAvailable)
-            {
-                MessageBox.Show("Dependency graph data was not found. Ensure IlcGenerateDgmlFile=true is specified.");
-                return;
-            }
-
             int? id = e.Node.Tag switch
             {
                 MstatTypeDefinition typedef => typedef.NodeId,
@@ -309,20 +297,8 @@ namespace sizoscope
 
             if (id.HasValue)
             {
-                if (id.Value < 0)
-                {
-                    MessageBox.Show("This node was not used directly and is included for display purposes only. Try analyzing sub nodes.");
-                    return;
-                }
-
-                var node = _data.GetNodeForId(id.Value, out string name);
-                if (node == null)
-                {
-                    MessageBox.Show($"Could not find path to roots from {name}.");
-                    return;
-                }
-
-                new RootForm(node).ShowDialog(this);
+                var data = _data;
+                await DependencyGraphToolbar.ShowRootsAsync(this, data, id.Value, isCurrent: () => _data == data);
             }
         }
 
@@ -344,9 +320,11 @@ namespace sizoscope
                     using var resolved = ResolvedFile.Open(files[0]);
                     MstatData right;
                     using (var mstatStream = resolved.OpenMstat())
-                        right = MstatData.Read(mstatStream, resolved.MstatLength, resolved.OpenDgml);
+                        right = MstatData.Read(mstatStream, resolved.MstatLength, resolved.GraphInput);
+                    using var rightLifetime = right;
                     (MstatData leftDiff, MstatData rightDiff) = MstatData.Diff(_data, right);
-                    new DiffForm(leftDiff, rightDiff, checked(right.Size - _data.Size)).ShowDialog(this);
+                    using var diff = new DiffForm(leftDiff, rightDiff, checked(right.Size - _data.Size));
+                    diff.ShowDialog(this);
                 });
             }
             else

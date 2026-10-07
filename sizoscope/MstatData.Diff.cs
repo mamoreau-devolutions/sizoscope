@@ -5,19 +5,19 @@ partial class MstatData
 {
     public static (MstatData Left, MstatData Right) Diff(MstatData left, MstatData right)
     {
+        using var leftLease = left.RetainBacking();
+        using var rightLease = right.RetainBacking();
         MstatData leftDiff = null;
         MstatData rightDiff = null;
         try
         {
-            leftDiff = new MstatData(left._image.Retain());
-            leftDiff._nameToNode = left._nameToNode;
+            leftDiff = new MstatData(left._image.Retain(), left._graph.Retain());
             if (left._manifestResourceCache != null)
                 leftDiff._manifestResourceCache = new ManifestResourceRowCache[left._manifestResourceCache.Length];
             if (left._frozenObjectCache != null)
                 leftDiff._frozenObjectCache = new FrozenObjectRowCache[left._frozenObjectCache.Length];
 
-            rightDiff = new MstatData(right._image.Retain());
-            rightDiff._nameToNode = right._nameToNode;
+            rightDiff = new MstatData(right._image.Retain(), right._graph.Retain());
             if (right._manifestResourceCache != null)
                 rightDiff._manifestResourceCache = new ManifestResourceRowCache[right._manifestResourceCache.Length];
             if (right._frozenObjectCache != null)
