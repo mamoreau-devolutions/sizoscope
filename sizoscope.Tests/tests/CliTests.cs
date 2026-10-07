@@ -16,6 +16,13 @@ public sealed class CliTests
     private static string Report(string total) =>
         "Total accounted size difference: " + total + Environment.NewLine + Environment.NewLine;
 
+    // Size-only change of an item present in both inputs: reconciled in the net-change section.
+    private static string SizeOnlyReport(string total) => total == "0 B" ? Report(total) : Report(total)
+        + "=== Net change by assembly (includes size changes of items present in both inputs) ===" + Environment.NewLine
+        + $"  {"Net",-12} {"Retained items",-14} Assembly" + Environment.NewLine
+        + $"  {(total.StartsWith('-') ? total : "+" + total),-12} {(total.StartsWith('-') ? total : "+" + total),-14} Fixture.Library" + Environment.NewLine
+        + Environment.NewLine;
+
     [Fact]
     public async Task Cli_SizeOnlyPrintsExactOrdinaryTotalWithoutDgml()
     {
@@ -40,7 +47,7 @@ public sealed class CliTests
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("", result.Error);
         Assert.Equal("", result.Output);
-        Assert.Equal(Encoding.UTF8.GetBytes(Report("12 B")), File.ReadAllBytes(output));
+        Assert.Equal(Encoding.UTF8.GetBytes(SizeOnlyReport("12 B")), File.ReadAllBytes(output));
     }
 
     [Theory]
@@ -61,8 +68,8 @@ public sealed class CliTests
             : await CliProcess.Run(left, right);
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("", result.Error);
-        Assert.Equal(outputFile ? "" : Report(expected), result.Output);
-        if (outputFile) Assert.Equal(Report(expected), File.ReadAllText(path));
+        Assert.Equal(outputFile ? "" : SizeOnlyReport(expected), result.Output);
+        if (outputFile) Assert.Equal(SizeOnlyReport(expected), File.ReadAllText(path));
     }
 
     [Fact]
@@ -190,6 +197,30 @@ public sealed class CliTests
     }
 
     [Fact]
+    public async Task Cli_DiffReportsSizeChangesOfItemsPresentInBothInputs()
+    {
+        using var temp = new OwnedTempDirectory(Path.GetTempPath());
+        byte[] Build(int code, int blob)
+        {
+            var b = new MstatPeBuilder();
+            var lib = b.AddType("Lib");
+            b.Method(b.AddMethod("Run", lib), code);
+            b.Blob("Metadata", blob);
+            return b.Build();
+        }
+        string before = InputFixtureBuilder.Plain(temp, "before.mstat", Build(300, 50));
+        string after = InputFixtureBuilder.Plain(temp, "after.mstat", Build(100, 70));
+
+        var diff = await CliProcess.Run(before, after);
+        Assert.Equal(0, diff.ExitCode);
+        Assert.Equal("", diff.Error);
+        Assert.Contains("Blobs: 50 B -> 70 B (+20 B)", diff.Output);
+        Assert.Contains("=== Net change by assembly", diff.Output);
+        Assert.Matches(@"-200 B\s+-200 B\s+Fixture", diff.Output);
+        Assert.DoesNotContain("=== Removed / Shrunk ===", diff.Output);
+    }
+
+    [Fact]
     public async Task Cli_LargeDeclaredTotalsRemainPositiveAndUntruncated()
     {
         using var temp = new OwnedTempDirectory(Path.GetTempPath());
@@ -211,7 +242,7 @@ public sealed class CliTests
         var retained = await CliProcess.Run(zero, huge);
         Assert.Equal(0, retained.ExitCode);
         Assert.Equal("", retained.Error);
-        Assert.Equal(Report("3.1 GB"), retained.Output);
+        Assert.Equal(SizeOnlyReport("3.1 GB"), retained.Output);
     }
 
     [Theory]
@@ -299,8 +330,8 @@ public sealed class CliTests
             : await CliProcess.RunWithCache(cache, left, right);
         Assert.Equal(0, result.ExitCode);
         Assert.Equal("", result.Error);
-        Assert.Equal(outputFile ? "" : Report(expected), result.Output);
-        if (outputFile) Assert.Equal(Encoding.UTF8.GetBytes(Report(expected)), File.ReadAllBytes(output));
+        Assert.Equal(outputFile ? "" : SizeOnlyReport(expected), result.Output);
+        if (outputFile) Assert.Equal(Encoding.UTF8.GetBytes(SizeOnlyReport(expected)), File.ReadAllBytes(output));
         Assert.False(Directory.Exists(cache));
     }
 

@@ -201,6 +201,13 @@ namespace SizoscopeCli
 
         static string AsFileSize(long size) => FileSizeFormatter.Format(size);
 
+        static string SignedFileSize(long size) => size switch
+        {
+            > 0 => "+" + AsFileSize(size),
+            < 0 => "-" + AsFileSize(-size),
+            _ => "0 B",
+        };
+
         static void PrintDiff(TextWriter writer, MstatData left, MstatData right, MstatData leftDiff, MstatData rightDiff, long totalDiffSize)
         {
             writer.WriteLine($"Total accounted size difference: {AsFileSize(totalDiffSize)}");
@@ -261,15 +268,46 @@ namespace SizoscopeCli
                 writer.WriteLine($"  New blobs: +{AsFileSize(rightDiff.BlobsSize)}");
             if (leftDiff.BlobsSize > 0)
                 writer.WriteLine($"  Removed blobs: -{AsFileSize(leftDiff.BlobsSize)}");
+            if (left.BlobsSize != right.BlobsSize)
+                writer.WriteLine($"  Blobs: {AsFileSize(left.BlobsSize)} -> {AsFileSize(right.BlobsSize)} ({SignedFileSize(right.BlobsSize - left.BlobsSize)})");
+            if (rightDiff.UnownedFrozenObjectSize > 0 || leftDiff.UnownedFrozenObjectSize > 0
+                || rightDiff.BlobsSize > 0 || leftDiff.BlobsSize > 0 || left.BlobsSize != right.BlobsSize)
+                writer.WriteLine();
+
+            // The sections above only list items present on one side. Items present in both inputs whose size
+            // changed (e.g. after changing optimization settings) are invisible there, so reconcile per assembly.
+            var presence = new Dictionary<string, long>(StringComparer.Ordinal);
+            foreach (var (name, size) in grown)
+                presence[name] = presence.GetValueOrDefault(name) + size;
+            foreach (var (name, size) in shrunk)
+                presence[name] = presence.GetValueOrDefault(name) - size;
+            var net = new Dictionary<string, long>(StringComparer.Ordinal);
+            foreach (var asm in right.GetScopes())
+                net[asm.DisplayName] = net.GetValueOrDefault(asm.DisplayName) + asm.AggregateSize;
+            foreach (var asm in left.GetScopes())
+                net[asm.DisplayName] = net.GetValueOrDefault(asm.DisplayName) - asm.AggregateSize;
+            var retained = net
+                .Select(kv => (Name: kv.Key, Net: kv.Value, Retained: kv.Value - presence.GetValueOrDefault(kv.Key)))
+                .Where(x => x.Retained != 0)
+                .OrderBy(x => x.Net)
+                .ToList();
+            if (retained.Count > 0)
+            {
+                writer.WriteLine("=== Net change by assembly (includes size changes of items present in both inputs) ===");
+                writer.WriteLine($"  {"Net",-12} {"Retained items",-14} Assembly");
+                foreach (var (name, netSize, retainedSize) in retained)
+                    writer.WriteLine($"  {SignedFileSize(netSize),-12} {SignedFileSize(retainedSize),-14} {name}");
+                writer.WriteLine();
+            }
 
             if (left.DeduplicatedAliasCount != right.DeduplicatedAliasCount || left.DeduplicatedSavedSize != right.DeduplicatedSavedSize)
             {
-                writer.WriteLine();
                 writer.WriteLine("=== Method body folding (not part of the total) ===");
                 writer.WriteLine($"  Folded methods: {left.DeduplicatedAliasCount:N0} -> {right.DeduplicatedAliasCount:N0}");
                 writer.WriteLine($"  Estimated folding savings: {AsFileSize(left.DeduplicatedSavedSize)} -> {AsFileSize(right.DeduplicatedSavedSize)}");
                 if ((left.DeduplicatedAliasCount == 0) != (right.DeduplicatedAliasCount == 0))
                     writer.WriteLine("  Note: one input records no folded methods; ILC may have run without method body folding data (e.g. different build options).");
+                writer.WriteLine();
             }
         }
     }
