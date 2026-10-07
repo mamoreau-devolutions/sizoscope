@@ -47,8 +47,9 @@ partial class MstatData
 
             if (thisTypeRef.ResolutionScope.Kind == HandleKind.AssemblyReference)
             {
-                string thisAsmName = this._data.MetadataReader.GetString(this._data.MetadataReader.GetAssemblyReference((AssemblyReferenceHandle)thisTypeRef.ResolutionScope).Name);
-                return other._data.MetadataReader.StringComparer.Equals(other._data.MetadataReader.GetAssemblyReference((AssemblyReferenceHandle)otherTypeRef.ResolutionScope).Name, thisAsmName);
+                var thisAsm = new MstatAssembly(_data, (AssemblyReferenceHandle)thisTypeRef.ResolutionScope);
+                var otherAsm = new MstatAssembly(other._data, (AssemblyReferenceHandle)otherTypeRef.ResolutionScope);
+                return thisAsm.Name == otherAsm.Name && thisAsm.Culture == otherAsm.Culture;
             }
             else
             {
@@ -232,6 +233,18 @@ partial class MstatData
 
         public string Name => _data.MetadataReader.GetString(_data.MetadataReader.GetAssemblyReference(_handle).Name);
 
+        public string Culture => _data.MetadataReader.GetString(_data.MetadataReader.GetAssemblyReference(_handle).Culture);
+
+        // Satellite assemblies share their name with the neutral assembly; the culture tells them apart.
+        public string DisplayName
+        {
+            get
+            {
+                string culture = Culture;
+                return culture.Length == 0 ? Name : $"{Name} [{culture}]";
+            }
+        }
+
         public MstatAssembly(MstatData data, AssemblyReferenceHandle handle)
             => (_data, _handle) = (data, handle);
 
@@ -250,7 +263,7 @@ partial class MstatData
             if (_data == other._data)
                 return _handle == other._handle;
 
-            return Name == other.Name;
+            return Name == other.Name && Culture == other.Culture;
         }
     }
 

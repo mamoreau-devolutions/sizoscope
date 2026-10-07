@@ -108,6 +108,33 @@ public sealed class CliTests
     }
 
     [Fact]
+    public async Task Cli_SatelliteAssembliesShowCultureAndDiffSeparately()
+    {
+        using var temp = new OwnedTempDirectory(Path.GetTempPath());
+        byte[] Satellites(int fr, int de)
+        {
+            var b = new MstatPeBuilder();
+            b.Method(b.AddMethod("Get", b.AddType("Res", "R", b.AddAssembly("App.resources", "fr"))), fr);
+            if (de > 0)
+                b.Method(b.AddMethod("Get", b.AddType("Res", "R", b.AddAssembly("App.resources", "de"))), de);
+            return b.Build();
+        }
+        string before = InputFixtureBuilder.Plain(temp, "before.mstat", Satellites(100, 200));
+        string after = InputFixtureBuilder.Plain(temp, "after.mstat", Satellites(100, 0));
+
+        var summary = await CliProcess.Run(before);
+        Assert.Equal(0, summary.ExitCode);
+        Assert.Contains("App.resources [fr]", summary.Output);
+        Assert.Contains("App.resources [de]", summary.Output);
+
+        var diff = await CliProcess.Run(before, after);
+        Assert.Equal(0, diff.ExitCode);
+        Assert.Equal("", diff.Error);
+        Assert.Equal(Report("-200 B") + "=== Removed / Shrunk ===" + Environment.NewLine
+            + "  -200 B        App.resources [de]" + Environment.NewLine + Environment.NewLine, diff.Output);
+    }
+
+    [Fact]
     public async Task Cli_LargeDeclaredTotalsRemainPositiveAndUntruncated()
     {
         using var temp = new OwnedTempDirectory(Path.GetTempPath());
