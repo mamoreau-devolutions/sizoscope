@@ -16,6 +16,119 @@ partial class MstatData
     // metadata handle of the next type. Using the RID portion of the handle
     // we can find the next entry in the TypeRefRowCache.
 
+    // Structural hash of signature blobs that is stable across files. It must stay
+    // consistent with SignatureEqualityComparer without initializing row caches.
+    private static class SignatureHasher
+    {
+        public static int HashTypeSignature(MstatData data, BlobReader reader)
+            => HashType(data, ref reader);
+
+        public static int HashMethodSpecSignature(MstatData data, BlobReader reader)
+        {
+            var hash = new HashCode();
+            hash.Add(reader.ReadSignatureHeader().RawValue);
+            int count = reader.ReadCompressedInteger();
+            hash.Add(count);
+            for (int i = 0; i < count; i++)
+                hash.Add(HashType(data, ref reader));
+            return hash.ToHashCode();
+        }
+
+        private static int HashType(MstatData data, ref BlobReader reader)
+        {
+            SignatureTypeCode typeCode = reader.ReadSignatureTypeCode();
+            switch (typeCode)
+            {
+                case SignatureTypeCode.Pointer:
+                case SignatureTypeCode.ByReference:
+                case SignatureTypeCode.SZArray:
+                    return HashCode.Combine((int)typeCode, HashType(data, ref reader));
+                case SignatureTypeCode.Array:
+                    {
+                        int elementHash = HashType(data, ref reader);
+                        int rank = reader.ReadCompressedInteger();
+                        int numSizes = reader.ReadCompressedInteger();
+                        for (int i = 0; i < numSizes; i++)
+                            reader.ReadCompressedInteger();
+                        int numLoBounds = reader.ReadCompressedInteger();
+                        for (int i = 0; i < numLoBounds; i++)
+                            reader.ReadCompressedSignedInteger();
+                        return HashCode.Combine((int)typeCode, elementHash, rank);
+                    }
+                case SignatureTypeCode.GenericMethodParameter:
+                case SignatureTypeCode.GenericTypeParameter:
+                    return HashCode.Combine((int)typeCode, reader.ReadCompressedInteger());
+                case SignatureTypeCode.GenericTypeInstance:
+                    {
+                        var hash = new HashCode();
+                        hash.Add((int)typeCode);
+                        hash.Add(HashType(data, ref reader));
+                        int count = reader.ReadCompressedInteger();
+                        hash.Add(count);
+                        for (int i = 0; i < count; i++)
+                            hash.Add(HashType(data, ref reader));
+                        return hash.ToHashCode();
+                    }
+                case SignatureTypeCode.FunctionPointer:
+                    return HashCode.Combine((int)typeCode, HashMethodSignature(data, ref reader));
+                case SignatureTypeCode.RequiredModifier:
+                case SignatureTypeCode.OptionalModifier:
+                    {
+                        int modifier = HashTypeHandle(data, reader.ReadTypeHandle());
+                        return HashCode.Combine((int)typeCode, modifier, HashType(data, ref reader));
+                    }
+                case SignatureTypeCode.TypeHandle:
+                    return HashTypeHandle(data, reader.ReadTypeHandle());
+                default:
+                    return (int)typeCode;
+            }
+        }
+
+        private static int HashMethodSignature(MstatData data, ref BlobReader reader)
+        {
+            SignatureHeader header = reader.ReadSignatureHeader();
+            var hash = new HashCode();
+            hash.Add(header.RawValue);
+            if (header.Kind == SignatureKind.Method)
+            {
+                if (header.IsGeneric)
+                    hash.Add(reader.ReadCompressedInteger());
+                int parameterCount = reader.ReadCompressedInteger();
+                hash.Add(parameterCount);
+                for (int i = 0; i < parameterCount + 1; i++)
+                    hash.Add(HashType(data, ref reader));
+            }
+            else
+            {
+                hash.Add(HashType(data, ref reader));
+            }
+            return hash.ToHashCode();
+        }
+
+        private static int HashTypeHandle(MstatData data, EntityHandle handle)
+        {
+            if (handle.Kind == HandleKind.TypeReference)
+                return HashTypeReference(data, (TypeReferenceHandle)handle);
+
+            TypeSpecification typeSpec = data._reader.GetTypeSpecification((TypeSpecificationHandle)handle);
+            BlobReader nested = data._reader.GetBlobReader(typeSpec.Signature);
+            return HashType(data, ref nested);
+        }
+
+        private static int HashTypeReference(MstatData data, TypeReferenceHandle handle)
+        {
+            ref TypeRefRowCache cache = ref data._typeRefCache[MetadataTokens.GetRowNumber(handle)];
+            if (cache.IsInitialized)
+                return cache.HashCode;
+
+            TypeReference typeRef = data._reader.GetTypeReference(handle);
+            string name = data._reader.GetString(typeRef.Name);
+            if (typeRef.ResolutionScope.Kind != HandleKind.TypeReference)
+                return HashCode.Combine(data._reader.GetString(typeRef.Namespace).GetHashCode(), name.GetHashCode());
+            return HashCode.Combine(HashTypeReference(data, (TypeReferenceHandle)typeRef.ResolutionScope), name.GetHashCode());
+        }
+    }
+
     private readonly (string Namespace, string Name)[] _typeRefNameCache;
     private readonly string[] _memberRefNameCache;
     private readonly TypeRefRowCache[] _typeRefCache;
@@ -110,8 +223,7 @@ partial class MstatData
             NextTypeSpec = typeRefRow.FirstTypeSpec;
             typeRefRow.FirstTypeSpec = handle;
             
-            // TODO: compute hashcode as part of GetDeclaringTypeReference and make it better
-            HashCode = typeRefRow.HashCode;
+            HashCode = SignatureHasher.HashTypeSignature(data, data._reader.GetBlobReader(typeSpec.Signature));
 
             NodeId = -1;
         }
@@ -222,8 +334,8 @@ partial class MstatData
             NextMethodSpec = parentCache.FirstMethodSpec;
             parentCache.FirstMethodSpec = handle;
             
-            // TODO: better hashcode
-            HashCode = parentCache.HashCode;
+            HashCode = System.HashCode.Combine(parentCache.HashCode,
+                SignatureHasher.HashMethodSpecSignature(data, data.MetadataReader.GetBlobReader(methodSpec.Signature)));
 
             NodeId = -1;
         }

@@ -87,6 +87,26 @@ internal sealed class MstatPeBuilder
         return _metadata.AddTypeSpecification(_metadata.GetOrAddBlob(signature));
     }
 
+    public TypeSpecificationHandle AddArrayTypeSpec(
+        TypeReferenceHandle element,
+        int rank,
+        int[] sizes,
+        int[] lowerBounds)
+    {
+        var signature = new BlobBuilder();
+        signature.WriteByte(0x14);
+        signature.WriteByte(0x12);
+        signature.WriteCompressedInteger((MetadataTokens.GetRowNumber(element) << 2) | 1);
+        signature.WriteCompressedInteger(rank);
+        signature.WriteCompressedInteger(sizes.Length);
+        foreach (int size in sizes)
+            signature.WriteCompressedInteger(size);
+        signature.WriteCompressedInteger(lowerBounds.Length);
+        foreach (int lowerBound in lowerBounds)
+            signature.WriteCompressedSignedInteger(lowerBound);
+        return _metadata.AddTypeSpecification(_metadata.GetOrAddBlob(signature));
+    }
+
     public MethodSpecificationHandle AddMethodSpec(MemberReferenceHandle definition, byte argument) =>
         _metadata.AddMethodSpecification(
             definition,

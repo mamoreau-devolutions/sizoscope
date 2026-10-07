@@ -84,9 +84,24 @@ Sizes and aggregate differences use 64-bit accounting; large values display in G
 * MSTAT files are loaded to memory and the associated file system files are closed. This is done on purpose so that you can quickly do before/after comparisons: simply open the MSTAT, make your change to the project and re-publish, and do a diff _against the same file_.
 * Both the GUI and CLI tools accept `.zip` archives containing `.mstat` (and optionally `.scan.dgml.xml`) files. The `.mstat` is read directly from the archive without extracting to disk.
 
-## Command-line diffing
+## Command-line summaries and diffing
 
-The `sizoscope-cli` tool provides a non-interactive way to diff two MSTAT files:
+With one MSTAT input, `sizoscope-cli` ranks assemblies and the largest types:
+
+```shell
+$ sizoscope-cli app.mstat.zip --top 10
+Total accounted size: 12.3 MB
+
+=== Assemblies ===
+  7.1 MB          57.7% System.Private.CoreLib
+  ...
+
+=== Top 10 types ===
+  312.4 kB         2.5% [MyApp] Generated.Metadata
+  ...
+```
+
+With two inputs, it prints a non-interactive size diff:
 
 ```shell
 $ sizoscope-cli baseline.mstat compare.mstat
@@ -102,7 +117,11 @@ Total accounted size difference: 206.2 kB
   ...
 ```
 
-To write output to a file instead of stdout:
+The diff includes exact signed 64-bit totals, new and removed assembly content,
+retained-item size changes reconciled by assembly, blob and unowned frozen-object
+before/after deltas, and method-folding changes when those records are available.
+
+Use `--output` to write either report to a file instead of stdout:
 
 ```shell
 $ sizoscope-cli baseline.mstat compare.mstat --output diff.txt
@@ -113,6 +132,8 @@ ZIP archives work as well:
 ```shell
 $ sizoscope-cli baseline.mstat.zip compare.mstat.zip
 ```
+
+Run `sizoscope-cli --help` for concise usage and option details.
 
 ## Regression tests
 

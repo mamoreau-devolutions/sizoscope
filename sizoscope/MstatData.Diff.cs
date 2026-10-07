@@ -353,16 +353,21 @@ partial class MstatData
             if (_blob2.ReadCompressedInteger() != rank)
                 return false;
 
-            int boundsCount = _blob1.ReadCompressedInteger();
-            if (_blob2.ReadCompressedInteger() != boundsCount)
+            int numSizes = _blob1.ReadCompressedInteger();
+            if (_blob2.ReadCompressedInteger() != numSizes)
                 return false;
 
-            for (int i = 0; i < 2; i++)
-            {
-                for (int j = 0; j < boundsCount; i++)
-                    if (_blob1.ReadCompressedInteger() != _blob2.ReadCompressedInteger())
-                        return false;
-            }
+            for (int i = 0; i < numSizes; i++)
+                if (_blob1.ReadCompressedInteger() != _blob2.ReadCompressedInteger())
+                    return false;
+
+            int numLoBounds = _blob1.ReadCompressedInteger();
+            if (_blob2.ReadCompressedInteger() != numLoBounds)
+                return false;
+
+            for (int i = 0; i < numLoBounds; i++)
+                if (_blob1.ReadCompressedSignedInteger() != _blob2.ReadCompressedSignedInteger())
+                    return false;
 
             return true;
         }
