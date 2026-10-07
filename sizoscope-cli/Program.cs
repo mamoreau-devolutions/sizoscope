@@ -93,7 +93,7 @@ namespace SizoscopeCli
                     continue;
                 if (asm.AggregateSize == 0)
                     continue;
-                grown.Add((asm.Name, asm.AggregateSize));
+                grown.Add((asm.DisplayName, asm.AggregateSize));
             }
 
             // Collect assemblies from the left diff (removed/shrunk items)
@@ -104,7 +104,7 @@ namespace SizoscopeCli
                     continue;
                 if (asm.AggregateSize == 0)
                     continue;
-                shrunk.Add((asm.Name, asm.AggregateSize));
+                shrunk.Add((asm.DisplayName, asm.AggregateSize));
             }
 
             // Sort by absolute size descending

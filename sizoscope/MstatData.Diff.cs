@@ -425,7 +425,8 @@ partial class MstatData
                 AssemblyReference asmRef2 = reader2.GetAssemblyReference((AssemblyReferenceHandle)typeRef2.ResolutionScope);
 
                 string asmName = reader1.GetString(asmRef1.Name);
-                return reader2.StringComparer.Equals(asmRef2.Name, asmName);
+                return reader2.StringComparer.Equals(asmRef2.Name, asmName)
+                    && reader2.StringComparer.Equals(asmRef2.Culture, reader1.GetString(asmRef1.Culture));
             }
 
             return AreEqual(reader1, (TypeReferenceHandle)typeRef1.ResolutionScope, reader2, (TypeReferenceHandle)typeRef2.ResolutionScope);

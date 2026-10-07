@@ -41,7 +41,7 @@ namespace sizoscope
                 if (asm.AggregateSize == 0)
                     continue;
 
-                string name = $"{asm.Name} ({AsFileSize(asm.AggregateSize)})";
+                string name = $"{asm.DisplayName} ({AsFileSize(asm.AggregateSize)})";
                 TreeNode node = new TreeNode(name, 0, 0,
                     new TreeNode[] { new TreeNode() });
                 node.Tag = asm;

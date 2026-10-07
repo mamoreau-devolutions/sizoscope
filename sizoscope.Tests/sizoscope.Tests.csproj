@@ -23,5 +23,6 @@
     <Compile Include="..\sizoscope\MstatData.ObjectModel.cs" Link="Production\MstatData.ObjectModel.cs" />
     <Compile Include="..\sizoscope\InputFileHelper.cs" Link="Production\InputFileHelper.cs" />
     <Compile Include="..\sizoscope\FileSizeFormatter.cs" Link="Production\FileSizeFormatter.cs" />
+    <Compile Include="..\sizoscope\TreeLogic.cs" Link="Production\TreeLogic.cs" />
   </ItemGroup>
 </Project>

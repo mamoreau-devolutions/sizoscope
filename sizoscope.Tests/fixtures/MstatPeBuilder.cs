@@ -38,11 +38,11 @@ internal sealed class MstatPeBuilder
 
     public AssemblyReferenceHandle Assembly { get; }
 
-    public AssemblyReferenceHandle AddAssembly(string name) =>
+    public AssemblyReferenceHandle AddAssembly(string name, string culture = null) =>
         _metadata.AddAssemblyReference(
             _metadata.GetOrAddString(name),
             new Version(1, 0, 0, 0),
-            default,
+            culture is null ? default : _metadata.GetOrAddString(culture),
             default,
             0,
             default);
